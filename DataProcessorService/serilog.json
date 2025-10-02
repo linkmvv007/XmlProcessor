@@ -20,7 +20,7 @@
     ],
     "Enrich": [ "FromLogContext", "WithMachineName", "WithThreadId" ],
     "Properties": {
-      "Application": "SampleApp"
+      "Application": "DataProcessorService"
     }
   }
 }
