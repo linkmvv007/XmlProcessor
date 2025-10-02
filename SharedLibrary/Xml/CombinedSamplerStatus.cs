@@ -30,7 +30,7 @@ public class CombinedSamplerStatus
     public int Status { get; set; }
 
     [XmlElement("Vial")]
-    public string Vial { get; set; }
+    public string? Vial { get; set; }
 
     [XmlElement("Volume")]
     public int Volume { get; set; }
@@ -39,10 +39,10 @@ public class CombinedSamplerStatus
     public int MaximumInjectionVolume { get; set; }
 
     [XmlElement("RackL")]
-    public string RackL { get; set; }
+    public string? RackL { get; set; }
 
     [XmlElement("RackR")]
-    public string RackR { get; set; }
+    public string? RackR { get; set; }
 
     [XmlElement("RackInf")]
     public int RackInf { get; set; }

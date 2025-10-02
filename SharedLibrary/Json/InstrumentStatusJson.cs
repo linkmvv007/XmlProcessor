@@ -7,21 +7,21 @@ namespace SharedLibrary.Json;
 
 public class InstrumentStatusJson
 {
-    public string SchemaVersion { get; set; }
+    public required string SchemaVersion { get; set; }
 
-    public string PackageID { get; set; }
+    public required string PackageID { get; set; }
 
-    public List<DeviceStatusJson> DeviceStatuses { get; set; }
+    public required List<DeviceStatusJson> DeviceStatuses { get; set; }
 }
 
 
 public class DeviceStatusJson
 {
-    public string ModuleCategoryID { get; set; } = string.Empty;
+    public required string ModuleCategoryID { get; set; } = string.Empty;
 
     public int IndexWithinRole { get; set; }
 
-    public RapidControlStatusJson RapidControlStatus { get; set; }
+    public required RapidControlStatusJson RapidControlStatus { get; set; }
 }
 
 
@@ -63,7 +63,7 @@ public class CombinedOvenStatusJson : RapidControlStatusJson
 
 public class CombinedPumpStatusJson : RapidControlStatusJson
 {
-    public string Mode { get; set; }
+    public string? Mode { get; set; }
 
     public double Flow { get; set; }
 
@@ -86,14 +86,14 @@ public class CombinedPumpStatusJson : RapidControlStatusJson
 public class CombinedSamplerStatusJson : RapidControlStatusJson
 {
     public int Status { get; set; }
-    public string Vial { get; set; }
+    public string? Vial { get; set; }
     public int Volume { get; set; }
 
     public int MaximumInjectionVolume { get; set; }
 
-    public string RackL { get; set; }
+    public string? RackL { get; set; }
 
-    public string RackR { get; set; }
+    public string? RackR { get; set; }
 
     public int RackInf { get; set; }
 

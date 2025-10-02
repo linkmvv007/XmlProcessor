@@ -12,11 +12,11 @@ public class RabbitMQPublisher : IRabbitMQPublisher
 
     private readonly ILogger<RabbitMQPublisher> _logger;
 
-    private readonly RabbitMqConfig _rabbitMqConfig;
+    private readonly RabbitMqConfigPublisher _rabbitMqConfig;
 
     private readonly ConnectionFactory _factory;
 
-    public RabbitMQPublisher(ILogger<RabbitMQPublisher> logger, IOptions<RabbitMqConfig> rabbitMqConfig)
+    public RabbitMQPublisher(ILogger<RabbitMQPublisher> logger, IOptions<RabbitMqConfigPublisher> rabbitMqConfig)
     {
         _logger = logger;
         _rabbitMqConfig = rabbitMqConfig.Value;
@@ -29,7 +29,7 @@ public class RabbitMQPublisher : IRabbitMQPublisher
             Password = _rabbitMqConfig.Password,
             Port = _rabbitMqConfig.Port,
 
-            AutomaticRecoveryEnabled = _rabbitMqConfig.AutomaticRecoveryEnabled, // Автоматическое восстановление соединения
+            AutomaticRecoveryEnabled = _rabbitMqConfig.AutomaticRecoveryEnabled,
             NetworkRecoveryInterval = TimeSpan.FromSeconds(_rabbitMqConfig.NetworkRecoveryInterval)
         };
     }
@@ -43,32 +43,30 @@ public class RabbitMQPublisher : IRabbitMQPublisher
             using var connection = await _factory.CreateConnectionAsync(cancellationToken: ts);
             using var channel = await connection.CreateChannelAsync(cancellationToken: ts);
 
-            // Объявляем очередь (если не существует)
+            // Declaring a queue (if it doesn't exist)
             await channel.QueueDeclareAsync(
                 queue: _rabbitMqConfig.QueueName,
-                durable: true, // Сохранять очередь после рестарта
+                durable: true, // Save queue after restart
                 exclusive: false,
                 autoDelete: false,
-                //arguments:null
+
                 arguments: new Dictionary<string, object?>
                  {
-                { RabbitMqConsts.xDeadLetterExchange, _rabbitMqConfig.XDeadLetterExchange },
-                { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.XDeadLetterRoutingKey }
+                    { RabbitMqConsts.xDeadLetterExchange, _rabbitMqConfig.XDeadLetterExchange },
+                    { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.XDeadLetterRoutingKey }
                  },
                 cancellationToken: ts);
 
 
             var body = System.Text.Encoding.UTF8.GetBytes(messageBody);
 
-            // Публикуем сообщение
             var properties = new BasicProperties
             {
                 DeliveryMode = DeliveryModes.Persistent,
                 ContentType = "application/json"
             };
 
-
-            // Публикуем сообщение (с обязательными mandatory)
+            //  The publish the message
             await channel.BasicPublishAsync(
                   exchange: "",
                   routingKey: _rabbitMqConfig.QueueName,
@@ -78,21 +76,23 @@ public class RabbitMQPublisher : IRabbitMQPublisher
                   ts);
 
 
-            // не отправленные сообщения:
+            // unsent messages:
             channel.BasicReturnAsync += async (sender, args) =>
             {
                 _logger.LogWarning($"Message returned: {args.ReplyText} ; routingKey = {args.RoutingKey}");
+
+                throw new ApplicationException("Raise BasicReturnAsync"); // Try to send it again
 
                 //var body = args.Body.ToArray();
                 //var message = Encoding.UTF8.GetString(body);
                 //todo: save to storage... that later send again
 
-                await Task.CompletedTask;
+                //await Task.CompletedTask;
             };
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Exception with RabbitMQ : {ex.Message},\n\r message :'{messageBody}'");
+            _logger.LogError(ex, $"Exception with RabbitMQ - message :'{messageBody}'");
             throw;
         }
         finally

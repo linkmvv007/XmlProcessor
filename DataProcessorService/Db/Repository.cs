@@ -43,7 +43,7 @@ public class Repository : IRepository
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Database and table is not initialized: {ex.Message}");
+            _logger.LogError(ex, "Database and table is not initialized");
 
             cts.Cancel(); // exit
         }
@@ -73,7 +73,7 @@ public class Repository : IRepository
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Update table is failed ModuleCategoryID = ({module.ModuleCategoryID}, ModuleState = {module.ModuleState}): {ex.Message}");
+            _logger.LogError(ex, $"Update table is failed ModuleCategoryID = ({module.ModuleCategoryID}, ModuleState = {module.ModuleState})");
         }
 
         return true;

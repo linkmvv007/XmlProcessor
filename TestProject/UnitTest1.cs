@@ -44,15 +44,15 @@ namespace TestProject
         public void ParseXmlTest()
         {
 
-            InstrumentStatus modules;
+            InstrumentStatus? modules;
             using (var stream = File.OpenRead(Path.Combine("./Data/status.xml")))
             {
                 var serializer = new XmlSerializer(typeof(InstrumentStatus));
-                modules = (InstrumentStatus)serializer.Deserialize(stream);
+                modules = (InstrumentStatus?)serializer.Deserialize(stream);
             }
 
 
-            Assert.IsTrue(modules.DeviceStatuses.Count == 3);
+            Assert.IsTrue(modules!.DeviceStatuses.Count == 3);
 
             InstrumentStatusJson json = modules.ToJson(true);
 

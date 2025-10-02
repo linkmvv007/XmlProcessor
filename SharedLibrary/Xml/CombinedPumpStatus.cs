@@ -24,7 +24,7 @@ public class CombinedPumpStatus
     public bool KeyLock { get; set; }
 
     [XmlElement("Mode")]
-    public string Mode { get; set; }
+    public string? Mode { get; set; }
 
     [XmlElement("Flow")]
     public double Flow { get; set; }

@@ -11,13 +11,12 @@ using System.Text;
 
 namespace DataProcessorService;
 
-
 public class Worker : BackgroundService
 {
     private const string TitleProgram = "DataProcessorService";
 
     private readonly ILogger<Worker> _logger;
-    private readonly RabbitMqConfig _rabbitMqConfig;
+    private readonly RabbitMqConfigConsumer _rabbitMqConfig;
     private readonly IRepository _repository;
 
     private IConnection? _connection;
@@ -29,7 +28,7 @@ public class Worker : BackgroundService
     public Worker(
         IHostApplicationLifetime lifetime,
         ILogger<Worker> logger,
-        IOptions<RabbitMqConfig> rabbitMqOptions,
+        IOptions<RabbitMqConfigConsumer> rabbitMqOptions,
         IRepository repository
        )
     {
@@ -51,12 +50,11 @@ public class Worker : BackgroundService
 
         await _channel!.BasicConsumeAsync(
                              queue: _rabbitMqConfig.QueueName,
-                             autoAck: false, // Вручную подтверждаем получение
+                             autoAck: false, // Manually confirming receipt
                              consumer: consumer,
                              cancellationToken: stoppingToken
                              );
 
-        // Ждем токен отмены
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(10000, stoppingToken);
@@ -91,10 +89,9 @@ public class Worker : BackgroundService
 
                 if (await _repository.ProcessModuleAsync(json, stoppingToken))
                 {
+                    // do not confirm receipt, the message is moved to dlx (Dead Letter Queue)
                     await _channel!.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false, stoppingToken);
 
-                    //todo: error write to db => не подтверждать получение | хранить в др. месте (redis, fifo rabit)'
-                    // Dead Letter Queue
                     return;
                 }
             }
@@ -107,7 +104,6 @@ public class Worker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing message from RabbitMQ: {Message}", message);
-            // В реальном приложении может потребоваться Dead Letter Queue
         }
         finally
         {
@@ -121,7 +117,6 @@ public class Worker : BackgroundService
 
         _repository.InitializeDatabase(localCts);
 
-        //await InitializeRabbitMqAsync(localCts);
         await SetupQueuesAsync(localCts);
 
         if (localCts.IsCancellationRequested)
@@ -129,52 +124,6 @@ public class Worker : BackgroundService
             _logger.LogInformation("Exit background service");
 
             _lifetime.StopApplication(); // exit
-        }
-    }
-
-    private async Task InitializeRabbitMqAsync(CancellationTokenSource cts)
-    {
-        try
-        {
-            var factory = new ConnectionFactory()
-            {
-                HostName = _rabbitMqConfig.HostName,
-                VirtualHost = _rabbitMqConfig.VirtualHost,
-                Port = _rabbitMqConfig.Port,
-                UserName = _rabbitMqConfig.UserName,
-                Password = _rabbitMqConfig.Password
-            };
-
-            _connection = await factory.CreateConnectionAsync(cts.Token);
-            _channel = await _connection.CreateChannelAsync();
-
-
-
-            await _channel.ExchangeDeclareAsync(_rabbitMqConfig.XDeadLetterExchange, ExchangeType.Direct, durable: true);
-            await _channel.QueueDeclareAsync(_rabbitMqConfig.XDeadLetterQueueName, durable: true, exclusive: false, autoDelete: false);
-            await _channel.QueueBindAsync(_rabbitMqConfig.XDeadLetterQueueName, _rabbitMqConfig.XDeadLetterExchange, _rabbitMqConfig.XDeadLetterQueueName);
-
-
-
-            var queue = await _channel.QueueDeclareAsync(
-                                  queue: _rabbitMqConfig.QueueName,
-                                  durable: true,
-                                  exclusive: false,
-                                  autoDelete: false,
-                                  cancellationToken: cts.Token,
-                                  arguments: new Dictionary<string, object?>  // !!!
-            {
-                { RabbitMqConsts.xDeadLetterExchange, _rabbitMqConfig.XDeadLetterExchange },
-                { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.XDeadLetterQueueName }
-            }
-                                  );
-
-            _logger.LogInformation("Connected to RabbitMQ.");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to connect to RabbitMQ.");
-            cts.Cancel(); // exit
         }
     }
 
@@ -186,7 +135,10 @@ public class Worker : BackgroundService
             VirtualHost = _rabbitMqConfig.VirtualHost,
             Port = _rabbitMqConfig.Port,
             UserName = _rabbitMqConfig.UserName,
-            Password = _rabbitMqConfig.Password
+            Password = _rabbitMqConfig.Password,
+
+            AutomaticRecoveryEnabled = _rabbitMqConfig.AutomaticRecoveryEnabled,
+            NetworkRecoveryInterval = TimeSpan.FromSeconds(_rabbitMqConfig.NetworkRecoveryInterval)
         };
 
         _connection = await factory.CreateConnectionAsync(cts.Token);

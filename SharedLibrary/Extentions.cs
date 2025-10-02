@@ -26,7 +26,7 @@ public static class Extentions
 
                         var data = new CombinedSamplerStatusJson()
                         {
-                            Buzzer = status.Buzzer,
+                            Buzzer = status!.Buzzer,
                             IsBusy = status.IsBusy,
                             IsError = status.IsError,
                             IsReady = status.IsReady,
@@ -58,7 +58,7 @@ public static class Extentions
 
                         var data = new CombinedPumpStatusJson()
                         {
-                            IsBusy = status.IsBusy,
+                            IsBusy = status!.IsBusy,
                             IsError = status.IsError,
                             IsReady = status.IsReady,
                             KeyLock = status.KeyLock,
@@ -93,7 +93,7 @@ public static class Extentions
 
                         var data = new CombinedOvenStatusJson()
                         {
-                            IsBusy = status.IsBusy,
+                            IsBusy = status!.IsBusy,
                             IsError = status.IsError,
                             IsReady = status.IsReady,
                             KeyLock = status.KeyLock,

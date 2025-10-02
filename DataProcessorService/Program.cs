@@ -7,38 +7,36 @@ using Serilog;
 using SharedLibrary.Configuration;
 
 
-namespace DataProcessorService
+namespace DataProcessorService;
+
+public class Program
 {
-    public class Program
+    public static void Main(string[] args)
     {
-        public static void Main(string[] args)
-        {
+        // serilog:
+        Log.Logger = new LoggerConfiguration()
+        .ReadFrom.Configuration(
+            new ConfigurationBuilder()
+            .AddJsonFile("serilog.json")
+            .Build()
+            )
+        .CreateLogger();
 
-            // serilog:
-            Log.Logger = new LoggerConfiguration()
-            .ReadFrom.Configuration(
-                new ConfigurationBuilder()
-                .AddJsonFile("serilog.json")
-                .Build()
-                )
-            .CreateLogger();
+        var builder = Host.CreateApplicationBuilder(args);
 
-            var builder = Host.CreateApplicationBuilder(args);
-
-            builder.Logging.AddSerilog();
+        builder.Logging.AddSerilog();
 
 
-            var rabbitMqSection = builder.Configuration.GetSection("RabbitMq");
-            var databaseSection = builder.Configuration.GetSection("Database");
+        var rabbitMqSection = builder.Configuration.GetSection("RabbitMq");
+        var databaseSection = builder.Configuration.GetSection("Database");
 
-            builder.Services.Configure<RabbitMqConfig>(rabbitMqSection);
-            builder.Services.Configure<DatabaseConfig>(databaseSection);
+        builder.Services.Configure<RabbitMqConfigConsumer>(rabbitMqSection);
+        builder.Services.Configure<DatabaseConfig>(databaseSection);
 
-            builder.Services.AddTransient<IRepository, Repository>();
+        builder.Services.AddSingleton<IRepository, Repository>();
 
-            builder.Services.AddHostedService<Worker>();
+        builder.Services.AddHostedService<Worker>();
 
-            builder.Build().Run();
-        }
+        builder.Build().Run();
     }
 }
