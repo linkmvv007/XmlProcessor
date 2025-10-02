@@ -1,5 +1,4 @@
 using FileParserService;
-using FileParserWebService;
 using FileParserWebService.Interfaces;
 using Polly;
 using Polly.Registry;
@@ -21,37 +20,40 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
+var registry = new PolicyRegistry
+{
+    // Policy for RabbitMQ
+    {
+        PolicyRegistryConsts.RabbitRetryKey, Policy
+            .Handle<Exception>()
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                (ex, ts, count, ctx) =>
+                {
+                    var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
+                    logger?.LogWarning(ex, $"RabbitMQ attempt {count}");
+                })
+    },
+    // Policy for opening files
+    {
+        PolicyRegistryConsts.FileOpenRetryKey, Policy
+            .Handle<IOException>()
+            .Or<UnauthorizedAccessException>()
+            .Or<Exception>()
+            .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
+                (ex, ts, count, ctx) =>
+                {
+                    var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
+                    var fileName = ctx[PolicyRegistryConsts.FileName] as string;
 
-var registry = new PolicyRegistry();
-
-// Policy for RabbitMQ
-registry.Add(PolicyRegistryConsts.RabbitRetryKey, Policy
-    .Handle<Exception>()
-    .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
-        (ex, ts, count, ctx) =>
-        {
-            var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
-            logger?.LogWarning(ex, $"RabbitMQ attempt {count}");
-        }));
-
-// Policy for opening files
-registry.Add(PolicyRegistryConsts.FileOpenRetryKey, Policy
-    .Handle<IOException>()
-    .Or<UnauthorizedAccessException>()
-    .Or<Exception>()
-    .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
-        (ex, ts, count, ctx) =>
-        {
-            var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
-            var fileName = ctx[PolicyRegistryConsts.FileName] as string;
-
-            logger?.LogWarning($"Attempt {count}: error opening the file '{fileName}'. Repeat after {ts} sec.");
-        }));
+                    logger?.LogWarning($"Attempt {count}: error opening the file '{fileName}'. Repeat after {ts} sec.");
+                })
+    }
+};
 
 builder.Services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
 
 
-builder.Services.AddSingleton<IRabbitMQPublisher, RabbitMQPublisher>();
+builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
 builder.Services.AddHostedService<Worker>();
 
@@ -62,11 +64,11 @@ builder.Services.Configure<HostOptions>(hostOptions =>
 });
 
 var rabbitMqSection = builder.Configuration.GetSection("RabbitMq");
-var XmlFilesSection = builder.Configuration.GetSection("XmlFiles");
+var xmlFilesSection = builder.Configuration.GetSection("XmlFiles");
 
 
 builder.Services.Configure<RabbitMqConfigPublisher>(rabbitMqSection);
-builder.Services.Configure<FileStorageConfig>(XmlFilesSection);
+builder.Services.Configure<FileStorageConfig>(xmlFilesSection);
 
 
 var app = builder.Build();

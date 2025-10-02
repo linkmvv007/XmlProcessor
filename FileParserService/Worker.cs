@@ -17,7 +17,7 @@ public class Worker : IHostedService
     private readonly ILogger<Worker> _logger;
     private readonly FileStorageConfig _fileStorageConfig;
     private readonly IWebHostEnvironment _env;
-    private readonly IRabbitMQPublisher _publisher;
+    private readonly IRabbitMqPublisher _publisher;
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
     private readonly IHostApplicationLifetime _lifetime;
@@ -26,7 +26,7 @@ public class Worker : IHostedService
         IReadOnlyPolicyRegistry<string> registry,
         ILogger<Worker> logger,
         IOptions<FileStorageConfig> fileStorageConfig,
-        IRabbitMQPublisher publisher,
+        IRabbitMqPublisher publisher,
         IWebHostEnvironment env,
         IHostApplicationLifetime lifetime)
     {
@@ -60,14 +60,13 @@ public class Worker : IHostedService
         await Task.CompletedTask;
     }
 
-    protected async Task DoWorkAsync(CancellationToken stoppingToken)
+    private async Task DoWorkAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation($"{TitleProgram}  work process is starting.");
 
         try
         {
-            string folderPath, folderBadFilesPath;
-            SetupFolders(out folderPath, out folderBadFilesPath);
+            SetupFolders(out var folderPath, out var folderBadFilesPath);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -89,16 +88,15 @@ public class Worker : IHostedService
                            }
                        );
                     }
-
                 }
 
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"{ex.Message}");
+                    _logger.LogError(ex, $"");
                     throw;
                 }
 
-                await Task.Delay(1000);
+                await Task.Delay(1000, stoppingToken);
             }
 
         }
@@ -116,24 +114,25 @@ public class Worker : IHostedService
 
     private void SetupFolders(out string folderPath, out string folderBadFilesPath)
     {
-        (bool isExistPaths, (folderPath, folderBadFilesPath)) = CheckDirectories();
+        (var isExistPaths, (folderPath, folderBadFilesPath)) = CheckDirectories();
         if (!isExistPaths)
         {
             _lifetime.StopApplication();
         }
     }
 
-    private (bool isExistPaths, (string folderPath, string folderBadFilesPath) value) CheckDirectories()
+    private (bool isExistPaths, (string folderPath, string? folderBadFilesPath) value) CheckDirectories()
     {
         var folderPath = Path.Combine(_env.ContentRootPath, _fileStorageConfig.XmlFolder);
+ 
         if (!Directory.Exists(folderPath))
         {
-            _logger.LogWarning($"Directory for xml files '{folderPath}' not found");
+            _logger.LogWarning("Directory for xml files '{folderPath}' not found", folderPath);
 
-            return (isExistPaths: false, value: default);
+            return (isExistPaths: false, value: (folderPath, null));
         }
 
-        _logger.LogInformation($"XML-file folder: {folderPath}");
+        _logger.LogInformation("XML-file folder: {folderPath}", folderPath);
 
         var folderBadFilesPath = Path.Combine(folderPath, _fileStorageConfig.ErrorFolder);
         if (!Directory.Exists(folderBadFilesPath))
@@ -142,16 +141,18 @@ public class Worker : IHostedService
         }
         else
         {
-            _logger.LogInformation($"Bad format of the XML-file folder: {folderBadFilesPath}");
+            _logger.LogInformation("Bad format of the XML-file folder: {folderBadFilesPath}", folderBadFilesPath);
         }
 
-        return (isExistPaths: true, value: default);
+        return (isExistPaths: true, value: (folderPath, folderBadFilesPath));
     }
 
     private async Task ProcessFile(string folderBadFilesPath, string fileName, CancellationToken stoppingToken)
     {
         InstrumentStatus? modules = null;
 
+        _logger.LogInformation("{fileName} processing ...", fileName);
+        
         if (ReadXmlFile(fileName, ref modules)) // file open is error
             return;
 
@@ -159,7 +160,7 @@ public class Worker : IHostedService
         {
             if (modules is null) // xml is bad format
             {
-                _logger.LogError($"Bad xml file format '{fileName}'");
+                _logger.LogError("Bad xml file format '{fileName}'", fileName);
                 File.Move(fileName, GetBadFileName(folderBadFilesPath, fileName));
                 return;
             }
@@ -184,9 +185,10 @@ public class Worker : IHostedService
             {
                 [PolicyRegistryConsts.Logger] = _logger
             };
-            await _rabbitPolicy.ExecuteAsync((context) => _publisher.SendMessageToRabbitMQ(jsonData, stoppingToken), context);
+            await _rabbitPolicy.ExecuteAsync((_) => _publisher.SendMessageToRabbitMq(jsonData, stoppingToken), context);
 
             File.Delete(fileName);
+            _logger.LogInformation("{fileName} processing finished", fileName);
         }
         catch (Exception ex)
         {
@@ -214,7 +216,7 @@ public class Worker : IHostedService
 
     private bool ReadXmlFile(string fileName, ref InstrumentStatus? modules)
     {
-        bool errorOpenFile = false;
+        var errorOpenFile = false;
 
         try
         {
@@ -223,7 +225,7 @@ public class Worker : IHostedService
                 [PolicyRegistryConsts.FileName] = fileName,
                 [PolicyRegistryConsts.Logger] = _logger
             };
-            using var stream = _fileOpenPolicy.Execute((context) => File.OpenRead(fileName), context);
+            using var stream = _fileOpenPolicy.Execute((_) => File.OpenRead(fileName), context);
             {
                 modules = XmlHelper.Deserialize<InstrumentStatus>(stream);
             }
@@ -231,7 +233,7 @@ public class Worker : IHostedService
         catch (Exception ex)
         {
             errorOpenFile = true;
-            _logger.LogError(ex, $"Bad xml file format '{fileName}'");
+            _logger.LogError(ex, "Bad xml file format '{fileName}'", fileName);
         }
 
         return errorOpenFile;

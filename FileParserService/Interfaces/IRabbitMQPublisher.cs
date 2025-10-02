@@ -1,6 +1,6 @@
 ﻿namespace FileParserWebService.Interfaces;
 
-public interface IRabbitMQPublisher
+public interface IRabbitMqPublisher
 {
-    Task SendMessageToRabbitMQ(string messageBody, CancellationToken cancellationToken);
+    Task SendMessageToRabbitMq(string messageBody, CancellationToken cancellationToken);
 }

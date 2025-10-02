@@ -26,7 +26,7 @@ public class Repository : IRepository
             using var connection = new SqliteConnection(_databaseConfig.ConnectionString);
             connection.Open();
 
-            var createTableSql = @"
+            const string createTableSql = @"
                 CREATE TABLE IF NOT EXISTS Modules (
                     ModuleCategoryID TEXT PRIMARY KEY,
                     ModuleState TEXT NOT NULL
@@ -38,8 +38,6 @@ public class Repository : IRepository
 
                 _logger.LogInformation("Database and table initialized.");
             }
-
-            return;
         }
         catch (Exception ex)
         {

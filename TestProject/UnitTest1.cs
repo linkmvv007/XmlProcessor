@@ -24,7 +24,7 @@ namespace TestProject
                     It.IsAny<EventId>(),
                     It.Is<It.IsAnyType>((v, t) => true),
                     It.IsAny<Exception>(),
-                    It.Is<Func<It.IsAnyType, Exception, string>>((v, t) => true)))
+                    It.Is<Func<It.IsAnyType, Exception, string>>((v, t) => true)!))
                 .Callback((LogLevel level, EventId eventId, object state, Exception exception, Delegate formatter) =>
                 {
                     var message = formatter.DynamicInvoke(state, exception);

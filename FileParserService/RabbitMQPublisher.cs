@@ -4,19 +4,19 @@ using RabbitMQ.Client;
 using SharedLibrary;
 using SharedLibrary.Configuration;
 
-namespace FileParserWebService;
+namespace FileParserService;
 
-public class RabbitMQPublisher : IRabbitMQPublisher
+public class RabbitMqPublisher : IRabbitMqPublisher
 {
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    private readonly ILogger<RabbitMQPublisher> _logger;
+    private readonly ILogger<RabbitMqPublisher> _logger;
 
     private readonly RabbitMqConfigPublisher _rabbitMqConfig;
 
     private readonly ConnectionFactory _factory;
 
-    public RabbitMQPublisher(ILogger<RabbitMQPublisher> logger, IOptions<RabbitMqConfigPublisher> rabbitMqConfig)
+    public RabbitMqPublisher(ILogger<RabbitMqPublisher> logger, IOptions<RabbitMqConfigPublisher> rabbitMqConfig)
     {
         _logger = logger;
         _rabbitMqConfig = rabbitMqConfig.Value;
@@ -34,14 +34,14 @@ public class RabbitMQPublisher : IRabbitMQPublisher
         };
     }
 
-    async Task IRabbitMQPublisher.SendMessageToRabbitMQ(string messageBody, CancellationToken ts)
+    async Task IRabbitMqPublisher.SendMessageToRabbitMq(string messageBody, CancellationToken ts)
     {
         await _semaphore.WaitAsync(ts);
 
         try
         {
-            using var connection = await _factory.CreateConnectionAsync(cancellationToken: ts);
-            using var channel = await connection.CreateChannelAsync(cancellationToken: ts);
+            await using var connection = await _factory.CreateConnectionAsync(cancellationToken: ts);
+            await using var channel = await connection.CreateChannelAsync(cancellationToken: ts);
 
             // Declaring a queue (if it doesn't exist)
             await channel.QueueDeclareAsync(
@@ -66,7 +66,7 @@ public class RabbitMQPublisher : IRabbitMQPublisher
                 ContentType = "application/json"
             };
 
-            //  The publish the message
+            //  The publishing the message
             await channel.BasicPublishAsync(
                   exchange: "",
                   routingKey: _rabbitMqConfig.QueueName,
@@ -77,7 +77,7 @@ public class RabbitMQPublisher : IRabbitMQPublisher
 
 
             // unsent messages:
-            channel.BasicReturnAsync += async (sender, args) =>
+            channel.BasicReturnAsync +=  (sender, args) =>
             {
                 _logger.LogWarning($"Message returned: {args.ReplyText} ; routingKey = {args.RoutingKey}");
 
@@ -92,7 +92,7 @@ public class RabbitMQPublisher : IRabbitMQPublisher
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Exception with RabbitMQ - message :'{messageBody}'");
+            _logger.LogError(ex, "Exception with RabbitMQ - message :'{messageBody}'", messageBody);
             throw;
         }
         finally
