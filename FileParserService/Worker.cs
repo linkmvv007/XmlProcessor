@@ -16,7 +16,7 @@ public class Worker : IHostedService
     private const string TitleProgram = "FileParserService";
     private readonly ILogger<Worker> _logger;
     private readonly FileStorageConfig _fileStorageConfig;
-    private readonly IWebHostEnvironment _env;
+    private readonly IHostEnvironment _env;
     private readonly IRabbitMqPublisher _publisher;
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
@@ -27,7 +27,7 @@ public class Worker : IHostedService
         ILogger<Worker> logger,
         IOptions<FileStorageConfig> fileStorageConfig,
         IRabbitMqPublisher publisher,
-        IWebHostEnvironment env,
+        IHostEnvironment env,
         IHostApplicationLifetime lifetime)
     {
         _logger = logger;

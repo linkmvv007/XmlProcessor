@@ -6,77 +6,65 @@ using Serilog;
 using SharedLibrary;
 using SharedLibrary.Configuration;
 
+Host.CreateDefaultBuilder(args)
+    .UseSerilog((_, config) =>
+    {
+        config.ReadFrom.Configuration(
+            new ConfigurationBuilder()
+                .AddJsonFile("serilog.json")
+                .Build());
+    })
+    .ConfigureServices((hostContext, services) =>
+    {
+        var configuration = hostContext.Configuration;
 
-var builder = WebApplication.CreateBuilder(args);
+        // Polly registry
+        var registry = new PolicyRegistry
+        {
+            {
+                PolicyRegistryConsts.RabbitRetryKey, Policy
+                    .Handle<RabbitMqReturnException>()
+                    .Or<Exception>()
+                    .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                        (ex, ts, count, ctx) =>
+                        {
+                            var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
+                            logger?.LogWarning(ex, $"RabbitMQ attempt {count}");
+                        })
+            },
+            {
+                PolicyRegistryConsts.FileOpenRetryKey, Policy
+                    .Handle<IOException>()
+                    .Or<UnauthorizedAccessException>()
+                    .Or<Exception>()
+                    .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
+                        (ex, ts, count, ctx) =>
+                        {
+                            var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
+                            var fileName = ctx[PolicyRegistryConsts.FileName] as string;
+                            logger?.LogWarning($"Attempt {count}: error opening the file '{fileName}'. Repeat after {ts} sec.");
+                        })
+            }
+        };
 
-// serilog:
-Log.Logger = new LoggerConfiguration()
-.ReadFrom.Configuration(
-    new ConfigurationBuilder()
-    .AddJsonFile("serilog.json")
+        services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
+
+        // RabbitMQ
+        services.AddSingleton<IRabbitMqConnectionManager, RabbitMqConnectionManager>();
+        services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
+
+        // Hosted service
+        services.AddHostedService<Worker>();
+
+        // BackgroundService exception behavior
+        services.Configure<HostOptions>(options =>
+        {
+            options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+        });
+
+        // Configuration binding
+        services.Configure<RabbitMqConfigPublisher>(configuration.GetSection("RabbitMq"));
+        services.Configure<FileStorageConfig>(configuration.GetSection("XmlFiles"));
+    })
     .Build()
-    )
-.CreateLogger();
-
-builder.Host.UseSerilog();
-
-var registry = new PolicyRegistry
-{
-    // Policy for RabbitMQ
-    {
-        PolicyRegistryConsts.RabbitRetryKey, Policy
-            .Handle<RabbitMqReturnException>()
-            .Or<Exception>()
-            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
-                (ex, ts, count, ctx) =>
-                {
-                    var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
-                    logger?.LogWarning(ex, $"RabbitMQ attempt {count}");
-                })
-    },
-    // Policy for opening files
-    {
-        PolicyRegistryConsts.FileOpenRetryKey, Policy
-            .Handle<IOException>()
-            .Or<UnauthorizedAccessException>()
-            .Or<Exception>()
-            .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
-                (ex, ts, count, ctx) =>
-                {
-                    var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
-                    var fileName = ctx[PolicyRegistryConsts.FileName] as string;
-
-                    logger?.LogWarning($"Attempt {count}: error opening the file '{fileName}'. Repeat after {ts} sec.");
-                })
-    }
-};
-
-builder.Services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
-
-
-builder.Services.AddSingleton<IRabbitMqConnectionManager, RabbitMqConnectionManager>();
-builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
-
-builder.Services.AddHostedService<Worker>();
-
-// do not stop the host in case of exceptions:
-builder.Services.Configure<HostOptions>(hostOptions =>
-{
-    hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
-});
-
-var rabbitMqSection = builder.Configuration.GetSection("RabbitMq");
-var xmlFilesSection = builder.Configuration.GetSection("XmlFiles");
-
-
-builder.Services.Configure<RabbitMqConfigPublisher>(rabbitMqSection);
-builder.Services.Configure<FileStorageConfig>(xmlFilesSection);
-
-
-var app = builder.Build();
-
-
-app.UseRouting();
-//app.UseStaticFiles();
-
-app.Run();
+    .Run();
