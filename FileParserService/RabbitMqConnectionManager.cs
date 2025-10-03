@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.Extensions.Options;
+using Polly;
 using RabbitMQ.Client;
 using SharedLibrary;
 using SharedLibrary.Configuration;
@@ -15,13 +15,16 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
     private bool _queueDeclared;
     private readonly ConnectionFactory _factory;
     private readonly ILogger<RabbitMqConnectionManager> _logger;
+    private readonly IAsyncPolicy _rabbitPolicy;
     
     public RabbitMqConnectionManager(
         ILogger<RabbitMqConnectionManager> logger,
-        IOptions<RabbitMqConfigPublisher> rabbitMqConfig
+        IOptions<RabbitMqConfigPublisher> rabbitMqConfig,
+        IAsyncPolicy rabbitPolicy
         )
     {
         _rabbitMqConfig = rabbitMqConfig.Value;
+        _rabbitPolicy = rabbitPolicy;
         _logger = logger;
  
         _factory = new ConnectionFactory
@@ -81,18 +84,28 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
 
             if (_connection is null)
             {
-                return await CreateConnection(ct);
+                await _rabbitPolicy.ExecuteAsync(
+                    async (_) => await CreateConnection(ct), new Context
+                    {
+                        [PolicyRegistryConsts.Logger] = _logger
+                    });
             }
             
             if (!IsQueueDeclared)
             {
                 await DeclareChanel(ct);
+                
+                Debug.Assert(_connection != null);
                 return _connection;
             }
             
-            await ClearConnection(ct);
+            await ClearRabbitMqConnection(ct);
            
-            return await CreateConnection(ct);
+            return await _rabbitPolicy.ExecuteAsync(
+                async (_) => await CreateConnection(ct),  new Context
+                {
+                    [PolicyRegistryConsts.Logger] = _logger
+                });
              
         }
         catch (Exception ex)
@@ -130,7 +143,7 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
         }
     }
 
-    private async Task ClearConnection(CancellationToken ct)
+    private async Task ClearRabbitMqConnection(CancellationToken ct)
     {
         if (_connection is not null)
         {

@@ -21,18 +21,30 @@ public class Worker : IHostedService
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
     private readonly IHostApplicationLifetime _lifetime;
-
+ 
+/// <summary>
+/// 
+/// </summary>
+/// <param name="logger"></param>
+/// <param name="fileStorageConfig"></param>
+/// <param name="publisher"></param>
+/// <param name="env"></param>
+/// <param name="lifetime"></param>
+/// <param name="rabbitPolicy"></param>
+/// <param name="fileOpenPolicy"></param>
     public Worker(
-        IReadOnlyPolicyRegistry<string> registry,
         ILogger<Worker> logger,
         IOptions<FileStorageConfig> fileStorageConfig,
         IRabbitMqPublisher publisher,
         IHostEnvironment env,
-        IHostApplicationLifetime lifetime)
+        IHostApplicationLifetime lifetime,
+        IAsyncPolicy rabbitPolicy,
+        ISyncPolicy fileOpenPolicy
+        )
     {
         _logger = logger;
-        _rabbitPolicy = registry.Get<IAsyncPolicy>(PolicyRegistryConsts.RabbitRetryKey);
-        _fileOpenPolicy = registry.Get<ISyncPolicy>(PolicyRegistryConsts.FileOpenRetryKey);
+        _rabbitPolicy = rabbitPolicy;
+        _fileOpenPolicy = fileOpenPolicy;
 
         _fileStorageConfig = fileStorageConfig.Value;
         _env = env;

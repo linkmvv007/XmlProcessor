@@ -15,6 +15,15 @@ public class RabbitMqConfigPublisher
 
     public required string XDeadLetterExchange { get; set; }
     public required string XDeadLetterRoutingKey { get; set; }
+    
+    public required ConsumerConfig Consumer { get; set; }
+}
+
+public class ConsumerConfig
+{
+    public required uint PrefetchSize { get; set; }
+    public required ushort PrefetchCount { get; set; } = 5;
+    public required bool Global { get; set; } = false;
 }
 
 public class RabbitMqConfigConsumer : RabbitMqConfigPublisher

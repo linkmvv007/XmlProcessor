@@ -24,7 +24,14 @@ public class Worker : BackgroundService
 
     private readonly SemaphoreSlim _sqliteLock = new(1);
     private readonly IHostApplicationLifetime _lifetime;
-
+    
+/// <summary>
+/// 
+/// </summary>
+/// <param name="lifetime"></param>
+/// <param name="logger"></param>
+/// <param name="rabbitMqOptions"></param>
+/// <param name="repository"></param>
     public Worker(
         IHostApplicationLifetime lifetime,
         ILogger<Worker> logger,
@@ -174,6 +181,13 @@ public class Worker : BackgroundService
                 exchange: _rabbitMqConfig.XDeadLetterExchange,
                 routingKey: _rabbitMqConfig.XDeadLetterRoutingKey,
                 cancellationToken: cts.Token);
+
+            await _channel.BasicQosAsync(
+                _rabbitMqConfig.Consumer.PrefetchSize,
+                _rabbitMqConfig.Consumer.PrefetchCount,
+                _rabbitMqConfig.Consumer.Global,
+                cts.Token
+            );
         }
         catch (Exception ex)
         {

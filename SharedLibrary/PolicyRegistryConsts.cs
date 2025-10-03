@@ -8,5 +8,4 @@ public static class PolicyRegistryConsts
 
     public const string FileOpenRetryKey = "FileOpenRetry";
     public const string RabbitRetryKey = "RabbitRetry";
-
 }
