@@ -46,12 +46,11 @@ public class Worker : IHostedService
     {
         _logger.LogInformation($"{TitleProgram} is starting");
 
-        _ = DoWorkAsync(cancellationToken);
-
-        return Task.CompletedTask;
+        var executeTask = DoWorkAsync(cancellationToken);
+        
+        return executeTask.IsCompleted ? executeTask : Task.CompletedTask;
     }
-
-
+    
     public async Task StopAsync(CancellationToken cancellationToken)
     {
 
@@ -84,15 +83,14 @@ public class Worker : IHostedService
                            },
                            async (file, ct) =>
                            {
-                               await ProcessFile(folderBadFilesPath, file, stoppingToken);
+                               await ProcessFile(folderBadFilesPath!, file, ct);
                            }
                        );
                     }
                 }
-
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"");
+                    _logger.LogError(ex, $"1. Failed to DoWorkAsync()");
                     throw;
                 }
 
@@ -106,13 +104,13 @@ public class Worker : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "");
+            _logger.LogError(ex, "2. Failed to DoWorkAsync");
         }
 
         _logger.LogInformation($"{TitleProgram}  work process is stopping.");
     }
 
-    private void SetupFolders(out string folderPath, out string folderBadFilesPath)
+    private void SetupFolders(out string folderPath, out string? folderBadFilesPath)
     {
         (var isExistPaths, (folderPath, folderBadFilesPath)) = CheckDirectories();
         if (!isExistPaths)
@@ -141,7 +139,7 @@ public class Worker : IHostedService
         }
         else
         {
-            _logger.LogInformation("Bad format of the XML-file folder: {folderBadFilesPath}", folderBadFilesPath);
+            _logger.LogInformation("Error folder already exists: {folderBadFilesPath}", folderBadFilesPath);
         }
 
         return (isExistPaths: true, value: (folderPath, folderBadFilesPath));
@@ -152,20 +150,22 @@ public class Worker : IHostedService
         InstrumentStatus? modules = null;
 
         _logger.LogInformation("{fileName} processing ...", fileName);
-        
-        if (ReadXmlFile(fileName, ref modules)) // file open is error
+      
+        var ret = ReadXmlFile(fileName, ref modules);
+        if (!ret.openedFile) // file open is error
             return;
-
+        
         try
         {
-            if (modules is null) // xml is bad format
+            if (!ret.readedXml)
             {
                 _logger.LogError("Bad xml file format '{fileName}'", fileName);
+                
                 File.Move(fileName, GetBadFileName(folderBadFilesPath, fileName));
                 return;
             }
 
-            InstrumentStatusJson? json = XmlToJson(modules);
+            InstrumentStatusJson? json = XmlToJson(modules!);
             if (json is null) // invalid values in xml
             {
                 File.Move(fileName, GetBadFileName(folderBadFilesPath, fileName));
@@ -185,14 +185,24 @@ public class Worker : IHostedService
             {
                 [PolicyRegistryConsts.Logger] = _logger
             };
-            await _rabbitPolicy.ExecuteAsync((_) => _publisher.SendMessageToRabbitMq(jsonData, stoppingToken), context);
+           await _rabbitPolicy.ExecuteAsync(
+               async (_) =>
+               {
+                   var success = await _publisher.SendMessageToRabbitMq(jsonData, stoppingToken);
+                   if (!success)
+                   {
+                       throw new InvalidOperationException("Publish failed without exception");
+                   }
+               }, context);
 
+           
             File.Delete(fileName);
             _logger.LogInformation("{fileName} processing finished", fileName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "");
+            _logger.LogError(ex, "Failed to ProcessFile: {fileName}, {folderBadFilesPat}",
+                fileName, folderBadFilesPath);
         }
     }
 
@@ -214,10 +224,10 @@ public class Worker : IHostedService
         }
     }
 
-    private bool ReadXmlFile(string fileName, ref InstrumentStatus? modules)
+    private (bool openedFile, bool readedXml) ReadXmlFile(string fileName, ref InstrumentStatus? modules)
     {
-        var errorOpenFile = false;
-
+        var openedFile = false;
+        var readedXml = false;
         try
         {
             var context = new Context
@@ -226,18 +236,16 @@ public class Worker : IHostedService
                 [PolicyRegistryConsts.Logger] = _logger
             };
             using var stream = _fileOpenPolicy.Execute((_) => File.OpenRead(fileName), context);
-            {
-                modules = XmlHelper.Deserialize<InstrumentStatus>(stream);
-            }
+            openedFile = true;
+            
+            modules = XmlHelper.Deserialize<InstrumentStatus>(stream);
+            readedXml = modules is not null;
         }
         catch (Exception ex)
         {
-            errorOpenFile = true;
-            _logger.LogError(ex, "Bad xml file format '{fileName}'", fileName);
+            _logger.LogError(ex, "Read xml file '{fileName}'", fileName);
         }
 
-        return errorOpenFile;
+        return (openedFile, readedXml);
     }
-
-
 }

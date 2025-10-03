@@ -2,5 +2,5 @@
 
 public interface IRabbitMqPublisher
 {
-    Task SendMessageToRabbitMq(string messageBody, CancellationToken cancellationToken);
+    Task<bool> SendMessageToRabbitMq(string messageBody, CancellationToken cancellationToken);
 }

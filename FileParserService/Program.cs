@@ -25,7 +25,8 @@ var registry = new PolicyRegistry
     // Policy for RabbitMQ
     {
         PolicyRegistryConsts.RabbitRetryKey, Policy
-            .Handle<Exception>()
+            .Handle<RabbitMqReturnException>()
+            .Or<Exception>()
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
                 (ex, ts, count, ctx) =>
                 {
@@ -53,6 +54,7 @@ var registry = new PolicyRegistry
 builder.Services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
 
 
+builder.Services.AddSingleton<IRabbitMqConnectionManager, RabbitMqConnectionManager>();
 builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
 builder.Services.AddHostedService<Worker>();
@@ -75,6 +77,6 @@ var app = builder.Build();
 
 
 app.UseRouting();
-app.UseStaticFiles();
+//app.UseStaticFiles();
 
 app.Run();
