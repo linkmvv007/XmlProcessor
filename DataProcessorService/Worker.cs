@@ -1,18 +1,30 @@
-﻿using DataProcessorService.Db.Interfaces;
+﻿using System.Collections.ObjectModel;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using DataProcessorService.Db.Interfaces;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.Registry;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using SharedLibrary;
 using SharedLibrary.Configuration;
 using SharedLibrary.Json;
-using System.Text;
 
 namespace DataProcessorService;
 
-public class Worker : BackgroundService
+public class Worker : BackgroundService, IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        IncludeFields = true,
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     private const string TitleProgram = "DataProcessorService";
 
     private readonly ILogger<Worker> _logger;
@@ -24,105 +36,164 @@ public class Worker : BackgroundService
 
     private readonly SemaphoreSlim _sqliteLock = new(1);
     private readonly IHostApplicationLifetime _lifetime;
-    
-/// <summary>
-/// 
-/// </summary>
-/// <param name="lifetime"></param>
-/// <param name="logger"></param>
-/// <param name="rabbitMqOptions"></param>
-/// <param name="repository"></param>
+
+    private readonly IAsyncPolicy _repositoryPolicy;
+    private readonly IAsyncPolicy _rabbitMqPolicy;
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="lifetime"></param>
+    /// <param name="logger"></param>
+    /// <param name="rabbitMqOptions"></param>
+    /// <param name="repository"></param>
+    /// <param name="policyRegistry"></param>
     public Worker(
         IHostApplicationLifetime lifetime,
         ILogger<Worker> logger,
         IOptions<RabbitMqConfigConsumer> rabbitMqOptions,
-        IRepository repository
-       )
+        IRepository repository,
+        IPolicyRegistry<string> policyRegistry
+    )
     {
         _logger = logger;
         _lifetime = lifetime;
         _rabbitMqConfig = rabbitMqOptions.Value;
         _repository = repository;
+
+        _repositoryPolicy = policyRegistry.Get<IAsyncPolicy>(PolicyRegistryConsts.DbPollyKey);
+        _rabbitMqPolicy = policyRegistry.Get<IAsyncPolicy>(PolicyRegistryConsts.RabbitRetryKey);
+    }
+
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation($"{TitleProgram} is starting.");
+
+
+        await base.StartAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation($"{TitleProgram} is starting.");
+        _logger.LogInformation($"{TitleProgram} is running.");
 
-        await InitializeAsync();
+        await InitializeOrTerminateAsync();
 
-        var consumer = new AsyncEventingBasicConsumer(_channel!);
+        var consumer = new AsyncEventingBasicConsumer(_channel);
 
         consumer.ReceivedAsync += async (_, ea) => await HandleMessageAsync(ea, stoppingToken);
 
-        await _channel!.BasicConsumeAsync(
-                             queue: _rabbitMqConfig.QueueName,
-                             autoAck: false, // Manually confirming receipt
-                             consumer: consumer,
-                             cancellationToken: stoppingToken
-                             );
+        await _channel.BasicConsumeAsync(
+            queue: _rabbitMqConfig.QueueName,
+            autoAck: false, // Manually confirming receipt
+            consumer: consumer,
+            cancellationToken: stoppingToken
+        );
+    }
 
-        while (!stoppingToken.IsCancellationRequested)
+    private void ChannelIsNullThrow()
+    {
+        const string rabbitMqChannelMsg = @"RabbitMq channel is null";
+        if (_channel is null)
         {
-            await Task.Delay(10000, stoppingToken);
+            _logger.LogError(rabbitMqChannelMsg);
+            throw new InvalidOperationException(rabbitMqChannelMsg);
         }
-
-        _logger.LogInformation($"{TitleProgram} is stopping.");
     }
 
     private async Task HandleMessageAsync(BasicDeliverEventArgs ea, CancellationToken stoppingToken)
     {
-        await _sqliteLock.WaitAsync(stoppingToken);
-
-        string message = string.Empty;
         try
         {
-            message = Encoding.UTF8.GetString(ea.Body.ToArray());
-            var modules = System.Text.Json.JsonSerializer.Deserialize<InstrumentStatusJson>(message);
+            var modules = JsonSerializer.Deserialize<InstrumentStatusJson>(
+                Encoding.UTF8.GetString(ea.Body.Span
+                ),
+                _jsonOptions
+            );
 
             if (modules?.DeviceStatuses is null)
             {
-                _logger.LogWarning("Received invalid message: {Message}", message);
+                _logger.LogWarning("Received invalid message: {MessageId}",
+                    ea.BasicProperties?.MessageId ?? "null");
                 return;
             }
 
-            foreach (var module in modules.DeviceStatuses)
+            ChannelIsNullThrow();
+
+            if (await ProcessingMsg(ea, stoppingToken, modules))
             {
-                var json = new ModuleInfoJson
-                {
-                    ModuleCategoryID = module.ModuleCategoryID,
-                    ModuleState = module.RapidControlStatus.ModuleState.ToString()
-                };
+                await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false,
+                    stoppingToken); // confirm receipt
 
-                if (await _repository.ProcessModuleAsync(json, stoppingToken))
-                {
-                    // do not confirm receipt, the message is moved to dlx (Dead Letter Queue)
-                    await _channel!.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false, stoppingToken);
-
-                    return;
-                }
+                _logger.LogInformation("Processed message from RabbitMQ. {deliveryTag}, MessageId: {MessageId}",
+                    ea.DeliveryTag, ea.BasicProperties?.MessageId ?? "null");
             }
-
-            await _channel!.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, stoppingToken); // confirm receipt
-
-            _logger.LogInformation("Processed message from RabbitMQ.");
-
+        }
+        catch (OperationCanceledException oce)
+        {
+            _logger.LogWarning(oce, "RabbitMq operation cancelled.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing message from RabbitMQ: {Message}", message);
+            _logger.LogError(ex, "Error processing message from RabbitMQ: {MessageId}",
+                ea.BasicProperties?.MessageId ?? "null");
+        }
+    }
+
+    private async Task<bool> ProcessingMsg(BasicDeliverEventArgs ea, CancellationToken stoppingToken,
+        InstrumentStatusJson modules)
+    {
+        var ret = false;
+        var parameters = new Collection<ModuleInfoJson>();
+        foreach (var module in modules.DeviceStatuses)
+        {
+            parameters.Add(new ModuleInfoJson
+            {
+                ModuleCategoryID = module.ModuleCategoryID,
+                ModuleState = module.RapidControlStatus.ModuleState.ToString()
+            });
+        }
+
+        await _sqliteLock.WaitAsync(stoppingToken);
+        try
+        {
+            var context = new Context
+            {
+                [PolicyRegistryConsts.Logger] = _logger
+            };
+
+            await _repositoryPolicy.ExecuteAsync(
+                async (_) => { ret = await _repository.ProcessModulesBatchAsync(parameters, stoppingToken); }, context
+            );
+            return ret;
+        }
+        catch (OperationCanceledException oce)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ProcessingMsg errors: DeliveryTag: {DeliveryTag},  MessageId: {MessageId}",
+                ea.DeliveryTag, ea.BasicProperties?.MessageId ?? "null");
+            throw;
         }
         finally
         {
             _sqliteLock.Release();
+            if (!ret)
+            {
+                // do not confirm receipt, the message is moved to dlx (Dead Letter Queue)
+                await _channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false,
+                    stoppingToken);
+            }
         }
     }
 
-    private async Task InitializeAsync()
+    private async Task InitializeOrTerminateAsync()
     {
-        CancellationTokenSource localCts = new();
+        using CancellationTokenSource localCts = new();
 
-        _repository.InitializeDatabase(localCts);
+        await _repository.InitializeDatabaseAsync(localCts);
 
         await SetupQueuesAsync(localCts);
 
@@ -136,7 +207,10 @@ public class Worker : BackgroundService
 
     private async Task SetupQueuesAsync(CancellationTokenSource cts)
     {
-        var factory = new ConnectionFactory()
+        if (cts.Token.IsCancellationRequested)
+            return;
+
+        var factory = new ConnectionFactory
         {
             HostName = _rabbitMqConfig.HostName,
             VirtualHost = _rabbitMqConfig.VirtualHost,
@@ -148,26 +222,29 @@ public class Worker : BackgroundService
             NetworkRecoveryInterval = TimeSpan.FromSeconds(_rabbitMqConfig.NetworkRecoveryInterval)
         };
 
-        _connection = await factory.CreateConnectionAsync(cts.Token);
-        _channel = await _connection.CreateChannelAsync();
-
         try
         {
+            _connection = await factory.CreateConnectionAsync(cts.Token);
+            _channel = await _connection.CreateChannelAsync();
+            
             // main fifo
-            await _channel.QueueDeclareAsync(_rabbitMqConfig.QueueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: cts.Token,
-                 arguments: new Dictionary<string, object?>
-                 {
-                    { RabbitMqConsts.xDeadLetterExchange, _rabbitMqConfig.XDeadLetterExchange  },
-                    { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.XDeadLetterRoutingKey }
-                 });
-
-            // retry fifo
-            await _channel.QueueDeclareAsync(_rabbitMqConfig.XDeadLetterQueueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: cts.Token,
+            await _channel.QueueDeclareAsync(_rabbitMqConfig.QueueName, durable: true, exclusive: false,
+                autoDelete: false, cancellationToken: cts.Token,
                 arguments: new Dictionary<string, object?>
                 {
-                { RabbitMqConsts.xDeadLetterExchange, "" }, // default exchange
-                { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.QueueName },
-                { RabbitMqConsts.xMessageTtl, _rabbitMqConfig.TtlDelay } // delay in milliseconds
+                    { RabbitMqConsts.xDeadLetterExchange, _rabbitMqConfig.XDeadLetterExchange },
+                    { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.XDeadLetterRoutingKey }
+                });
+
+            // retry fifo
+            await _channel.QueueDeclareAsync(_rabbitMqConfig.XDeadLetterQueueName, durable: true, exclusive: false,
+                autoDelete: false, cancellationToken: cts.Token,
+                arguments: new Dictionary<string, object?>
+                {
+                    { RabbitMqConsts.xDeadLetterExchange, "" }, // default exchange
+                    { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.QueueName },
+                    { RabbitMqConsts.xMessageTtl, _rabbitMqConfig.TtlDelay } // delay in milliseconds
+                    //, {"x-max-length", 1000} // защита от переполнения
                 });
 
             // exchange:
@@ -192,23 +269,40 @@ public class Worker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Setup Rabbit");
-            throw;
+            cts.Cancel();
         }
     }
-    public async override void Dispose()
+
+    public async ValueTask DisposeAsync()
     {
         if (_channel is not null)
         {
-            await _channel.CloseAsync();
+            try
+            {
+                await _channel.CloseAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error while closing RabbitMQ channel.");
+            }
+
             _channel.Dispose();
         }
 
         if (_connection is not null)
         {
-            await _connection.CloseAsync();
+            try
+            {
+                await _connection.CloseAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error while closing RabbitMQ connection.");
+            }
+
             _connection.Dispose();
         }
 
-        base.Dispose();
+        _sqliteLock.Dispose();
     }
 }

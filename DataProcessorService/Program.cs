@@ -1,42 +1,71 @@
-﻿using DataProcessorService.Db;
+﻿using DataProcessorService;
+using DataProcessorService.Db;
 using DataProcessorService.Db.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Registry;
 using Serilog;
+using SharedLibrary;
 using SharedLibrary.Configuration;
 
-
-namespace DataProcessorService;
-
-public class Program
-{
-    public static void Main(string[] args)
+Host.CreateDefaultBuilder(args)
+    .UseSerilog((_, config) =>
     {
-        // serilog:
-        Log.Logger = new LoggerConfiguration()
-        .ReadFrom.Configuration(
+        config.ReadFrom.Configuration(
             new ConfigurationBuilder()
-            .AddJsonFile("serilog.json")
-            .Build()
-            )
-        .CreateLogger();
+                .AddJsonFile("serilog.json")
+                .Build());
+    })
+    .ConfigureServices((hostContext, services) =>
+    {
+        var configuration = hostContext.Configuration;
+        
+        // Polly registry
+        var registry = new PolicyRegistry
+        {
+            {
+                PolicyRegistryConsts.RabbitRetryKey, Policy
+                    .Handle<Exception>(ex => ex is not OperationCanceledException)
+                    .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                        (ex, ts, count, ctx) =>
+                        {
+                            var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
+                            logger?.LogWarning(ex, $"RabbitMQ attempt {count}. Repeat after {ts} sec.");
+                        })
+            },
+            {
+                PolicyRegistryConsts.DbPollyKey, Policy
+                    .Handle<Exception>(ex => ex is not OperationCanceledException)
+                    .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
+                        (ex, ts, count, ctx) =>
+                        {
+                            var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
+                            logger?.LogWarning(
+                                $"Attempt {count}: Database error operation. Repeat after {ts} sec.");
+                        })
+            }
+        };
 
-        var builder = Host.CreateApplicationBuilder(args);
+        // Polly
+        services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
+        
+        services.AddSingleton<IRepository, Repository>();
 
-        builder.Logging.AddSerilog();
+        // Hosted service
+        services.AddHostedService<Worker>();
 
+        // BackgroundService exception behavior
+        services.Configure<HostOptions>(options =>
+        {
+            options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+        });
 
-        var rabbitMqSection = builder.Configuration.GetSection("RabbitMq");
-        var databaseSection = builder.Configuration.GetSection("Database");
-
-        builder.Services.Configure<RabbitMqConfigConsumer>(rabbitMqSection);
-        builder.Services.Configure<DatabaseConfig>(databaseSection);
-
-        builder.Services.AddSingleton<IRepository, Repository>();
-
-        builder.Services.AddHostedService<Worker>();
-
-        builder.Build().Run();
-    }
-}
+        // Configuration binding
+        services.Configure<RabbitMqConfigConsumer>(configuration.GetSection("RabbitMq"));
+        services.Configure<DatabaseConfig>(configuration.GetSection("Database"));
+    })
+    .Build()
+    .Run();

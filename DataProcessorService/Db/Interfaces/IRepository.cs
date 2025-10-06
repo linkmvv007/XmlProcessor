@@ -4,7 +4,8 @@ namespace DataProcessorService.Db.Interfaces;
 
 public interface IRepository
 {
-    void InitializeDatabase(CancellationTokenSource cts);
+    Task InitializeDatabaseAsync(CancellationTokenSource cts);
     Task<bool> ProcessModuleAsync(ModuleInfoJson module, CancellationToken ct);
+    Task<bool> ProcessModulesBatchAsync(IEnumerable<ModuleInfoJson> modules, CancellationToken ct);
 
 }
