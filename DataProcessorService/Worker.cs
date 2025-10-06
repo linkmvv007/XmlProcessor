@@ -53,7 +53,7 @@ public class Worker : BackgroundService, IAsyncDisposable
         ILogger<Worker> logger,
         IOptions<RabbitMqConfigConsumer> rabbitMqOptions,
         IRepository repository,
-        IPolicyRegistry<string> policyRegistry
+        IReadOnlyPolicyRegistry<string> policyRegistry
     )
     {
         _logger = logger;
@@ -167,8 +167,9 @@ public class Worker : BackgroundService, IAsyncDisposable
             );
             return ret;
         }
-        catch (OperationCanceledException oce)
+        catch (OperationCanceledException )
         {
+            _logger.LogInformation("ProcessingMsg: Operation Canceled Exception");
             throw;
         }
         catch (Exception ex)

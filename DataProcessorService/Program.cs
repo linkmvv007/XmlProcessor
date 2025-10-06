@@ -39,7 +39,7 @@ Host.CreateDefaultBuilder(args)
             {
                 PolicyRegistryConsts.DbPollyKey, Policy
                     .Handle<Exception>(ex => ex is not OperationCanceledException)
-                    .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
+                    .WaitAndRetryAsync(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
                         (ex, ts, count, ctx) =>
                         {
                             var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;

@@ -7,12 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Remove="appsettings.json" />
     <Content Remove="serilog.json" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="appsettings.json" />
     <None Include="serilog.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
