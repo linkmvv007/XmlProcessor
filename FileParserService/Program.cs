@@ -24,31 +24,34 @@ Host.CreateDefaultBuilder(args)
             {
                 PolicyRegistryConsts.RabbitRetryKey, Policy
                     .Handle<RabbitMqReturnException>()
-                    .Or<Exception>()
+                    .Or<Exception>(ex => ex is not OperationCanceledException)
                     .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
                         (ex, ts, count, ctx) =>
                         {
                             var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
-                            logger?.LogWarning(ex, $"RabbitMQ attempt {count}");
+                            logger?.LogWarning(ex, $"RabbitMQ attempt {count}. Repeat after {ts} sec.");
                         })
             },
             {
                 PolicyRegistryConsts.FileOpenRetryKey, Policy
                     .Handle<IOException>()
                     .Or<UnauthorizedAccessException>()
-                    .Or<Exception>()
+                    .Or<Exception>(ex => ex is not OperationCanceledException)
                     .WaitAndRetry(5, attempt => TimeSpan.FromMilliseconds(500 * attempt),
                         (ex, ts, count, ctx) =>
                         {
                             var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;
                             var fileName = ctx[PolicyRegistryConsts.FileName] as string;
-                            logger?.LogWarning($"Attempt {count}: error opening the file '{fileName}'. Repeat after {ts} sec.");
+                            logger?.LogWarning(
+                                $"Attempt {count}: error opening the file '{fileName}'. Repeat after {ts} sec.");
                         })
             }
         };
 
-        services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
-
+       // services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
+        services.AddSingleton<IAsyncPolicy>(registry.Get<IAsyncPolicy>(PolicyRegistryConsts.RabbitRetryKey));
+        services.AddSingleton<ISyncPolicy>(registry.Get<ISyncPolicy>(PolicyRegistryConsts.FileOpenRetryKey));
+        
         // RabbitMQ
         services.AddSingleton<IRabbitMqConnectionManager, RabbitMqConnectionManager>();
         services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();

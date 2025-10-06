@@ -2,7 +2,6 @@
  using Microsoft.Extensions.Options;
  using RabbitMQ.Client;
  using RabbitMQ.Client.Events;
- using SharedLibrary;
  using SharedLibrary.Configuration;
  
  namespace FileParserService;
@@ -13,6 +12,11 @@
      private readonly RabbitMqConfigPublisher _rabbitMqConfig;
      private readonly IRabbitMqConnectionManager _rabbitConnectionManager;
 
+     /// <summary>
+     /// </summary>
+     /// <param name="logger"></param>
+     /// <param name="rabbitMqConfig"></param>
+     /// <param name="rabbitConnectionManager"></param>
      public RabbitMqPublisher(
          ILogger<RabbitMqPublisher> logger, 
          IOptions<RabbitMqConfigPublisher> rabbitMqConfig,
@@ -24,8 +28,6 @@
          _rabbitMqConfig = rabbitMqConfig.Value;
          _rabbitConnectionManager = rabbitConnectionManager;
      }
-     
-  
     
      async Task<bool> MessagePublishing(IChannel channel, byte[] body, CancellationToken ts)
      {
@@ -97,7 +99,4 @@
          }
  
      }
-     
-     
-    
  }

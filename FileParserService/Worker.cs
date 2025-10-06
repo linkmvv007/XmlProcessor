@@ -1,13 +1,13 @@
-﻿using FileParserService.Xml;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
+using FileParserService.Xml;
 using FileParserWebService.Interfaces;
 using Microsoft.Extensions.Options;
 using Polly;
-using Polly.Registry;
 using SharedLibrary;
 using SharedLibrary.Configuration;
 using SharedLibrary.Json;
 using SharedLibrary.Xml;
-using System.Text.Json;
 
 namespace FileParserService;
 
@@ -21,17 +21,17 @@ public class Worker : IHostedService
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
     private readonly IHostApplicationLifetime _lifetime;
- 
-/// <summary>
-/// 
-/// </summary>
-/// <param name="logger"></param>
-/// <param name="fileStorageConfig"></param>
-/// <param name="publisher"></param>
-/// <param name="env"></param>
-/// <param name="lifetime"></param>
-/// <param name="rabbitPolicy"></param>
-/// <param name="fileOpenPolicy"></param>
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="logger"></param>
+    /// <param name="fileStorageConfig"></param>
+    /// <param name="publisher"></param>
+    /// <param name="env"></param>
+    /// <param name="lifetime"></param>
+    /// <param name="rabbitPolicy"></param>
+    /// <param name="fileOpenPolicy"></param>
     public Worker(
         ILogger<Worker> logger,
         IOptions<FileStorageConfig> fileStorageConfig,
@@ -40,7 +40,7 @@ public class Worker : IHostedService
         IHostApplicationLifetime lifetime,
         IAsyncPolicy rabbitPolicy,
         ISyncPolicy fileOpenPolicy
-        )
+    )
     {
         _logger = logger;
         _rabbitPolicy = rabbitPolicy;
@@ -53,19 +53,17 @@ public class Worker : IHostedService
         _lifetime = lifetime;
     }
 
-
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation($"{TitleProgram} is starting");
 
         var executeTask = DoWorkAsync(cancellationToken);
-        
+
         return executeTask.IsCompleted ? executeTask : Task.CompletedTask;
     }
-    
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-
         _logger.LogInformation($"{TitleProgram} is stop");
 
         await Task.CompletedTask;
@@ -87,17 +85,14 @@ public class Worker : IHostedService
                     if (xmlFiles.Length > 0)
                     {
                         await Parallel.ForEachAsync(
-                           xmlFiles,
-                           new ParallelOptions
-                           {
-                               CancellationToken = stoppingToken,
-                               MaxDegreeOfParallelism = _fileStorageConfig.MaxThreadsCount
-                           },
-                           async (file, ct) =>
-                           {
-                               await ProcessFile(folderBadFilesPath!, file, ct);
-                           }
-                       );
+                            xmlFiles,
+                            new ParallelOptions
+                            {
+                                CancellationToken = stoppingToken,
+                                MaxDegreeOfParallelism = _fileStorageConfig.MaxThreadsCount
+                            },
+                            async (file, ct) => { await ProcessFile(folderBadFilesPath!, file, ct); }
+                        );
                     }
                 }
                 catch (Exception ex)
@@ -108,7 +103,6 @@ public class Worker : IHostedService
 
                 await Task.Delay(1000, stoppingToken);
             }
-
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -134,7 +128,7 @@ public class Worker : IHostedService
     private (bool isExistPaths, (string folderPath, string? folderBadFilesPath) value) CheckDirectories()
     {
         var folderPath = Path.Combine(_env.ContentRootPath, _fileStorageConfig.XmlFolder);
- 
+
         if (!Directory.Exists(folderPath))
         {
             _logger.LogWarning("Directory for xml files '{folderPath}' not found", folderPath);
@@ -162,17 +156,17 @@ public class Worker : IHostedService
         InstrumentStatus? modules = null;
 
         _logger.LogInformation("{fileName} processing ...", fileName);
-      
+
         var ret = ReadXmlFile(fileName, ref modules);
         if (!ret.openedFile) // file open is error
             return;
-        
+
         try
         {
             if (!ret.readedXml)
             {
                 _logger.LogError("Bad xml file format '{fileName}'", fileName);
-                
+
                 File.Move(fileName, GetBadFileName(folderBadFilesPath, fileName));
                 return;
             }
@@ -189,25 +183,27 @@ public class Worker : IHostedService
                 json.GetType(),
                 new JsonSerializerOptions
                 {
-                    IncludeFields = true
+                    IncludeFields = true,
+                    PropertyNameCaseInsensitive = true,
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
                 }
-                );
+            );
 
             var context = new Context
             {
                 [PolicyRegistryConsts.Logger] = _logger
             };
-           await _rabbitPolicy.ExecuteAsync(
-               async (_) =>
-               {
-                   var success = await _publisher.SendMessageToRabbitMq(jsonData, stoppingToken);
-                   if (!success)
-                   {
-                       throw new InvalidOperationException("Publish failed without exception");
-                   }
-               }, context);
+            await _rabbitPolicy.ExecuteAsync(
+                async (_) =>
+                {
+                    var success = await _publisher.SendMessageToRabbitMq(jsonData, stoppingToken);
+                    if (!success)
+                    {
+                        throw new InvalidOperationException("Publish failed without exception");
+                    }
+                }, context);
 
-           
+
             File.Delete(fileName);
             _logger.LogInformation("{fileName} processing finished", fileName);
         }
@@ -219,7 +215,7 @@ public class Worker : IHostedService
     }
 
     private static string GetBadFileName(string folderBadFilesPath, string fileName) =>
-         Path.Combine(folderBadFilesPath, $"{Path.GetFileNameWithoutExtension(fileName)}-{Guid.NewGuid():N}.xml");
+        Path.Combine(folderBadFilesPath, $"{Path.GetFileNameWithoutExtension(fileName)}-{Guid.NewGuid():N}.xml");
 
 
     private InstrumentStatusJson? XmlToJson(InstrumentStatus modules)
@@ -249,7 +245,7 @@ public class Worker : IHostedService
             };
             using var stream = _fileOpenPolicy.Execute((_) => File.OpenRead(fileName), context);
             openedFile = true;
-            
+
             modules = XmlHelper.Deserialize<InstrumentStatus>(stream);
             readedXml = modules is not null;
         }

@@ -72,10 +72,10 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
             return _connection;
         }
 
-        await _connectionLock.WaitAsync(ct);
-        
         try
         {
+            await _connectionLock.WaitAsync(ct);
+            
             if (IsReadyConnection)
             {
                 Debug.Assert(_connection != null);
@@ -93,7 +93,7 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
             
             if (!IsQueueDeclared)
             {
-                await DeclareChanel(ct);
+                await DeclareChannel(ct);
                 
                 Debug.Assert(_connection != null);
                 return _connection;
@@ -124,12 +124,12 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
         _connection = await _factory.CreateConnectionAsync(cancellationToken: ct);
         _logger.LogInformation("RabbitMQ connection created/recreated");
 
-        await DeclareChanel(ct);
+        await DeclareChannel(ct);
         
         return _connection;
     }
 
-    private async Task DeclareChanel(CancellationToken ct)
+    private async Task DeclareChannel(CancellationToken ct)
     {
         if (!_queueDeclared)
         {
