@@ -128,6 +128,8 @@ public class Worker : BackgroundService, IAsyncDisposable
                 _logger.LogInformation("Processed message from RabbitMQ. {deliveryTag}, MessageId: {MessageId}",
                     ea.DeliveryTag, ea.BasicProperties?.MessageId ?? "null");
             }
+            
+            _logger.LogInformation("Message processed with DeliveryTag:{DeliveryTag} , MessageId: {MessageId}", ea.DeliveryTag, ea.BasicProperties?.MessageId?? "null");
         }
         catch (OperationCanceledException oce)
         {
