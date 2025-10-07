@@ -71,7 +71,7 @@ Host.CreateDefaultBuilder(args)
         });
 
         // Configuration binding
-        services.Configure<RabbitMqConfigPublisher>(configuration.GetSection("RabbitMq"));
+        services.Configure<RabbitMqPublisherConfig>(configuration.GetSection("RabbitMq"));
         services.Configure<FileStorageConfig>(configuration.GetSection("XmlFiles"));
     })
     .Build()

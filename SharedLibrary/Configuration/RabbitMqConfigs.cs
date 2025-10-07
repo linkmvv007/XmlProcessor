@@ -1,6 +1,6 @@
 ﻿namespace SharedLibrary.Configuration;
 
-public class RabbitMqConfigPublisher
+public class RabbitMqPublisherConfig
 {
     public required string HostName { get; set; }
     public required string VirtualHost { get; set; }
@@ -17,6 +17,8 @@ public class RabbitMqConfigPublisher
     public required string XDeadLetterRoutingKey { get; set; }
     
     public required ConsumerConfig Consumer { get; set; }
+    
+   
 }
 
 public class ConsumerConfig
@@ -26,10 +28,11 @@ public class ConsumerConfig
     public required bool Global { get; set; } = false;
 }
 
-public class RabbitMqConfigConsumer : RabbitMqConfigPublisher
+public class RabbitMqConsumerConfig : RabbitMqPublisherConfig
 {
     public required string XDeadLetterQueueName { get; set; }
-
     public int TtlDelay { get; set; } = 10000;
+    public required int XMaxLength { get; set; } = 500;
+
 }
 

@@ -9,61 +9,58 @@ namespace FileParserService;
 
 public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
 {
-    private readonly RabbitMqConfigPublisher _rabbitMqConfig;
+    private readonly RabbitMqPublisherConfig _rabbitMqPublisherConfig;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private IConnection? _connection; // Shared connection
     private bool _queueDeclared;
     private readonly ConnectionFactory _factory;
     private readonly ILogger<RabbitMqConnectionManager> _logger;
     private readonly IAsyncPolicy _rabbitPolicy;
-    
+
     public RabbitMqConnectionManager(
         ILogger<RabbitMqConnectionManager> logger,
-        IOptionsMonitor<RabbitMqConfigPublisher> rabbitMqConfig,
+        IOptionsMonitor<RabbitMqPublisherConfig> rabbitMqConfig,
         IAsyncPolicy rabbitPolicy
-        )
+    )
     {
-        _rabbitMqConfig = rabbitMqConfig.CurrentValue;
+        _rabbitMqPublisherConfig = rabbitMqConfig.CurrentValue;
         _rabbitPolicy = rabbitPolicy;
         _logger = logger;
- 
+
         _factory = new ConnectionFactory
         {
-            HostName = _rabbitMqConfig.HostName,
-            VirtualHost = _rabbitMqConfig.VirtualHost,
-            UserName = _rabbitMqConfig.UserName,
-            Password = _rabbitMqConfig.Password,
-            Port = _rabbitMqConfig.Port,
- 
-            AutomaticRecoveryEnabled = _rabbitMqConfig.AutomaticRecoveryEnabled,
-            NetworkRecoveryInterval = TimeSpan.FromSeconds(_rabbitMqConfig.NetworkRecoveryInterval)
+            HostName = _rabbitMqPublisherConfig.HostName,
+            VirtualHost = _rabbitMqPublisherConfig.VirtualHost,
+            UserName = _rabbitMqPublisherConfig.UserName,
+            Password = _rabbitMqPublisherConfig.Password,
+            Port = _rabbitMqPublisherConfig.Port,
+
+            AutomaticRecoveryEnabled = _rabbitMqPublisherConfig.AutomaticRecoveryEnabled,
+            NetworkRecoveryInterval = TimeSpan.FromSeconds(_rabbitMqPublisherConfig.NetworkRecoveryInterval)
         };
     }
 
     private async Task DeclareQueueAsync(IChannel channel, CancellationToken ts)
     {
         var result = await channel.QueueDeclareAsync(
-            queue: _rabbitMqConfig.QueueName,
+            queue: _rabbitMqPublisherConfig.QueueName,
             durable: true,
             exclusive: false,
             autoDelete: false,
             arguments: new Dictionary<string, object?>
             {
-                { RabbitMqConsts.xDeadLetterExchange, _rabbitMqConfig.XDeadLetterExchange },
-                { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqConfig.XDeadLetterRoutingKey }
+                { RabbitMqConsts.xDeadLetterExchange, _rabbitMqPublisherConfig.XDeadLetterExchange },
+                { RabbitMqConsts.xDeadLetterRoutingKey, _rabbitMqPublisherConfig.XDeadLetterRoutingKey }
             },
             cancellationToken: ts);
 
         _logger.LogDebug("Queue '{QueueName}' declared: messages={Messages}, consumers={Consumers}",
-            _rabbitMqConfig.QueueName, result.MessageCount, result.ConsumerCount);
+            _rabbitMqPublisherConfig.QueueName, result.MessageCount, result.ConsumerCount);
     }
 
     private bool IsReadyConnection =>
-         _connection is { IsOpen: true } && _queueDeclared;
-    
-    private bool IsQueueDeclared =>
-        _connection is { IsOpen: true } && !_queueDeclared;
-    
+        _connection is { IsOpen: true } && _queueDeclared;
+
     async Task<IConnection> IRabbitMqConnectionManager.GetConnectionAsync(CancellationToken ct)
     {
         if (IsReadyConnection)
@@ -75,43 +72,36 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
         try
         {
             await _connectionLock.WaitAsync(ct);
-            
+
             if (IsReadyConnection)
             {
                 Debug.Assert(_connection != null);
                 return _connection;
             }
 
-            if (_connection is null)
+            if (_connection is { IsOpen: true })
             {
-                await _rabbitPolicy.ExecuteAsync(
-                    async (_) => await CreateConnection(ct), new Context
-                    {
-                        [PolicyRegistryConsts.Logger] = _logger
-                    });
+                if (!_queueDeclared)
+                {
+                    await DeclareChannel(ct);
+
+                    Debug.Assert(_connection != null);
+                    return _connection;
+                }
             }
-            
-            if (!IsQueueDeclared)
-            {
-                await DeclareChannel(ct);
-                
-                Debug.Assert(_connection != null);
-                return _connection;
-            }
-            
+
             await ClearRabbitMqConnection(ct);
-           
+
             return await _rabbitPolicy.ExecuteAsync(
-                async (_) => await CreateConnection(ct),  new Context
+                async (_) => await CreateConnection(ct), new Context
                 {
                     [PolicyRegistryConsts.Logger] = _logger
                 });
-             
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create connection or declare queue");
-            throw; 
+            throw;
         }
         finally
         {
@@ -125,7 +115,7 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
         _logger.LogInformation("RabbitMQ connection created/recreated");
 
         await DeclareChannel(ct);
-        
+
         return _connection;
     }
 
@@ -134,12 +124,13 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
         if (!_queueDeclared)
         {
             Debug.Assert(_connection != null);
-            
-            await using var tempChannel = await _connection.CreateChannelAsync(cancellationToken: ct); 
+
+            await using var tempChannel = await _connection.CreateChannelAsync(cancellationToken: ct);
             await DeclareQueueAsync(tempChannel, ct);
-                
+
             _queueDeclared = true;
-            _logger.LogInformation("Queue '{QueueName}' declared on connection init", _rabbitMqConfig.QueueName);
+            _logger.LogInformation("Queue '{QueueName}' declared on connection init",
+                _rabbitMqPublisherConfig.QueueName);
         }
     }
 
@@ -170,7 +161,7 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
                 _logger.LogWarning(ex, "Error closing/disposing old connection (ignoring for recreate)");
             }
         }
-        
+
         _queueDeclared = false;
     }
 
@@ -178,7 +169,7 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
     {
         _connectionLock.Dispose();
         _connection?.Dispose();
-        
+
         _connection = null;
     }
 }

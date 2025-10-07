@@ -9,7 +9,7 @@
  public class RabbitMqPublisher : IRabbitMqPublisher
  {
      private readonly ILogger<RabbitMqPublisher> _logger;
-     private readonly RabbitMqConfigPublisher _rabbitMqConfig;
+     private readonly RabbitMqPublisherConfig _rabbitMqPublisherConfig;
      private readonly IRabbitMqConnectionManager _rabbitConnectionManager;
 
      /// <summary>
@@ -19,13 +19,13 @@
      /// <param name="rabbitConnectionManager"></param>
      public RabbitMqPublisher(
          ILogger<RabbitMqPublisher> logger, 
-         IOptionsMonitor<RabbitMqConfigPublisher> rabbitMqConfig,
+         IOptionsMonitor<RabbitMqPublisherConfig> rabbitMqConfig,
          IRabbitMqConnectionManager rabbitConnectionManager
          )
      {
          _logger = logger;
             
-         _rabbitMqConfig = rabbitMqConfig.CurrentValue;
+         _rabbitMqPublisherConfig = rabbitMqConfig.CurrentValue;
          _rabbitConnectionManager = rabbitConnectionManager;
      }
     
@@ -60,14 +60,14 @@
              //  The publishing the message
              await channel.BasicPublishAsync(
                  exchange: "",
-                 routingKey: _rabbitMqConfig.QueueName,
+                 routingKey: _rabbitMqPublisherConfig.QueueName,
                  mandatory: true,
                  basicProperties: properties,
                  body: body,
                  ts);
  
              _logger.LogInformation("Message sent successfully to queue: {QueueName}; messageId = {MessageId}",
-                 _rabbitMqConfig.QueueName, properties.MessageId);
+                 _rabbitMqPublisherConfig.QueueName, properties.MessageId);
              
              return true;
          }

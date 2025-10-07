@@ -20,7 +20,6 @@ public class Worker : IHostedService
     private readonly IRabbitMqPublisher _publisher;
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
-    private readonly IHostApplicationLifetime _lifetime;
 
     /// <summary>
     /// 
@@ -37,7 +36,6 @@ public class Worker : IHostedService
         IOptionsMonitor<FileStorageConfig> fileStorageConfig,
         IRabbitMqPublisher publisher,
         IHostEnvironment env,
-        IHostApplicationLifetime lifetime,
         IAsyncPolicy rabbitPolicy,
         ISyncPolicy fileOpenPolicy
     )
@@ -50,7 +48,6 @@ public class Worker : IHostedService
         _env = env;
 
         _publisher = publisher;
-        _lifetime = lifetime;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -75,7 +72,12 @@ public class Worker : IHostedService
 
         try
         {
-            SetupFolders(out var folderPath, out var folderBadFilesPath);
+            if (!SetupFolders(out var folderPath, out var folderBadFilesPath))
+            {
+                _logger.LogError($"Exit background service {TitleProgram}");
+
+                return;// exit
+            }
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -116,13 +118,10 @@ public class Worker : IHostedService
         _logger.LogInformation($"{TitleProgram}  work process is stopping.");
     }
 
-    private void SetupFolders(out string folderPath, out string? folderBadFilesPath)
+    private bool SetupFolders(out string folderPath, out string? folderBadFilesPath)
     {
         (var isExistPaths, (folderPath, folderBadFilesPath)) = CheckDirectories();
-        if (!isExistPaths)
-        {
-            _lifetime.StopApplication();
-        }
+        return isExistPaths;
     }
 
     private (bool isExistPaths, (string folderPath, string? folderBadFilesPath) value) CheckDirectories()
@@ -145,7 +144,7 @@ public class Worker : IHostedService
         }
         else
         {
-            _logger.LogInformation("Error folder already exists: {folderBadFilesPath}", folderBadFilesPath);
+            _logger.LogInformation("Folder already exists: {folderBadFilesPath}", folderBadFilesPath);
         }
 
         return (isExistPaths: true, value: (folderPath, folderBadFilesPath));

@@ -58,6 +58,7 @@ Host.CreateDefaultBuilder(args)
         services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
         
         services.AddSingleton<IRepository, Repository>();
+        services.AddSingleton<IRabbitMqConsumerManager,RabbitMqConsumerManager>();
 
         // Hosted service
         services.AddHostedService<Worker>();
@@ -69,7 +70,7 @@ Host.CreateDefaultBuilder(args)
         });
 
         // Configuration binding
-        services.Configure<RabbitMqConfigConsumer>(configuration.GetSection("RabbitMq"));
+        services.Configure<RabbitMqConsumerConfig>(configuration.GetSection("RabbitMq"));
         services.Configure<DatabaseConfig>(configuration.GetSection("Database"));
     })
     .Build()
