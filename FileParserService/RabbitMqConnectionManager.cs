@@ -19,11 +19,11 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
     
     public RabbitMqConnectionManager(
         ILogger<RabbitMqConnectionManager> logger,
-        IOptions<RabbitMqConfigPublisher> rabbitMqConfig,
+        IOptionsMonitor<RabbitMqConfigPublisher> rabbitMqConfig,
         IAsyncPolicy rabbitPolicy
         )
     {
-        _rabbitMqConfig = rabbitMqConfig.Value;
+        _rabbitMqConfig = rabbitMqConfig.CurrentValue;
         _rabbitPolicy = rabbitPolicy;
         _logger = logger;
  

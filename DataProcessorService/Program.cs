@@ -12,6 +12,11 @@ using SharedLibrary;
 using SharedLibrary.Configuration;
 
 Host.CreateDefaultBuilder(args)
+    .UseDefaultServiceProvider(options =>
+    {
+        options.ValidateScopes = true;
+        options.ValidateOnBuild = true; 
+    })
     .UseSerilog((_, config) =>
     {
         config.ReadFrom.Configuration(

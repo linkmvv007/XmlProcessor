@@ -78,19 +78,20 @@ public class Tests
             File.Delete(fileName);
         }
 
-        var config = new DatabaseConfig()
+        var mockOptionsMonitor = new Mock<IOptionsMonitor<DatabaseConfig>>();
+        mockOptionsMonitor.Setup(x => x.CurrentValue).Returns(new DatabaseConfig()
         {
             ConnectionString = $"Data Source={fileName}"
-        };
-
-        IOptions<DatabaseConfig> dbConfig = Options.Create<DatabaseConfig>(config);
+        });
+        
+        
         IRepository db = new Repository(
             CreateMockLogger(),
-            dbConfig
+            mockOptionsMonitor.Object
         );
 
         var cts = new CancellationTokenSource();
-        db.InitializeDatabaseAsync(cts);
+        await db.InitializeDatabaseAsync(cts);
 
         Assert.IsTrue(
             await db.ProcessModuleAsync(

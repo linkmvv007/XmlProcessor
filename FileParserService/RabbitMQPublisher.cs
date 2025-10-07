@@ -19,13 +19,13 @@
      /// <param name="rabbitConnectionManager"></param>
      public RabbitMqPublisher(
          ILogger<RabbitMqPublisher> logger, 
-         IOptions<RabbitMqConfigPublisher> rabbitMqConfig,
+         IOptionsMonitor<RabbitMqConfigPublisher> rabbitMqConfig,
          IRabbitMqConnectionManager rabbitConnectionManager
          )
      {
          _logger = logger;
             
-         _rabbitMqConfig = rabbitMqConfig.Value;
+         _rabbitMqConfig = rabbitMqConfig.CurrentValue;
          _rabbitConnectionManager = rabbitConnectionManager;
      }
     

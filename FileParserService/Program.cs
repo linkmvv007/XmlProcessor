@@ -7,6 +7,11 @@ using SharedLibrary;
 using SharedLibrary.Configuration;
 
 Host.CreateDefaultBuilder(args)
+    .UseDefaultServiceProvider(options =>
+    {
+        options.ValidateScopes = true;
+        options.ValidateOnBuild = true; 
+    })
     .UseSerilog((_, config) =>
     {
         config.ReadFrom.Configuration(
@@ -48,10 +53,10 @@ Host.CreateDefaultBuilder(args)
             }
         };
 
-       // services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
+        // services.AddSingleton<IReadOnlyPolicyRegistry<string>>(registry);
         services.AddSingleton<IAsyncPolicy>(registry.Get<IAsyncPolicy>(PolicyRegistryConsts.RabbitRetryKey));
         services.AddSingleton<ISyncPolicy>(registry.Get<ISyncPolicy>(PolicyRegistryConsts.FileOpenRetryKey));
-        
+
         // RabbitMQ
         services.AddSingleton<IRabbitMqConnectionManager, RabbitMqConnectionManager>();
         services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();

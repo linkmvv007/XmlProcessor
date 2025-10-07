@@ -34,7 +34,7 @@ public class Worker : IHostedService
     /// <param name="fileOpenPolicy"></param>
     public Worker(
         ILogger<Worker> logger,
-        IOptions<FileStorageConfig> fileStorageConfig,
+        IOptionsMonitor<FileStorageConfig> fileStorageConfig,
         IRabbitMqPublisher publisher,
         IHostEnvironment env,
         IHostApplicationLifetime lifetime,
@@ -46,7 +46,7 @@ public class Worker : IHostedService
         _rabbitPolicy = rabbitPolicy;
         _fileOpenPolicy = fileOpenPolicy;
 
-        _fileStorageConfig = fileStorageConfig.Value;
+        _fileStorageConfig = fileStorageConfig.CurrentValue;
         _env = env;
 
         _publisher = publisher;

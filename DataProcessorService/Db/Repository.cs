@@ -17,11 +17,11 @@ public class Repository : IRepository
     /// </summary>
     /// <param name="logger"></param>
     /// <param name="databaseConfig"></param>
-    public Repository(ILogger<Repository> logger, IOptions<DatabaseConfig> databaseConfig)
+    public Repository(ILogger<Repository> logger, IOptionsMonitor<DatabaseConfig> databaseConfig)
     {
         _logger = logger;
 
-        _databaseConfig = databaseConfig.Value;
+        _databaseConfig = databaseConfig.CurrentValue;
     }
 
     async Task IRepository.InitializeDatabaseAsync(CancellationTokenSource cts)
