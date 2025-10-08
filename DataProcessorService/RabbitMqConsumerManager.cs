@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DataProcessorService.Db.Interfaces;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -41,6 +42,7 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
     private readonly IAsyncPolicy _rabbitMqPolicy;
     private readonly IAsyncPolicy _repositoryPolicy;
     private readonly IRepository _repository;
+    private readonly IHostApplicationLifetime _lifetime;
 
     /// <summary>
     /// 
@@ -49,11 +51,13 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
     /// <param name="rabbitMqOptions"></param>
     /// <param name="policyRegistry"></param>
     /// <param name="repository"></param>
+    /// <param name="lifetime"></param>
     public RabbitMqConsumerManager(
         ILogger<RabbitMqConsumerManager> logger,
         IOptionsMonitor<RabbitMqConsumerConfig> rabbitMqOptions,
         IReadOnlyPolicyRegistry<string> policyRegistry,
-        IRepository repository
+        IRepository repository,
+        IHostApplicationLifetime lifetime
     )
     {
         _logger = logger;
@@ -61,6 +65,7 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
         _rabbitMqPolicy = policyRegistry.Get<IAsyncPolicy>(PolicyRegistryConsts.RabbitRetryKey);
         _repositoryPolicy = policyRegistry.Get<IAsyncPolicy>(PolicyRegistryConsts.DbPollyKey);
         _repository = repository;
+        _lifetime = lifetime;
     }
 
     private void ChannelIsNullThrow()
@@ -228,6 +233,7 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
         _handlerConnectionRecoveryError = async (_, args) =>
         {
             _logger.LogWarning(args.Exception, "RabbitMQ connection recovery error");
+
             await ReinitializeConsumerAsync(args.CancellationToken);
         };
 
@@ -307,7 +313,7 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
             _logger.LogWarning(args.Exception, "CallbackException occurred.");
             await ReinitializeConsumerAsync(args.CancellationToken);
         };
-        
+
         _channel.CallbackExceptionAsync += _handlerCallbackException;
     }
 
@@ -317,7 +323,6 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
             return;
         try
         {
-            ClearHandlers();
             await ConnectAndChannelDispose(ct);
 
             if (_connection is null || !_connection.IsOpen)
@@ -341,7 +346,8 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to reinitialize RabbitMQ consumer.");
+            _logger.LogError(ex, "Failed to reinitialize RabbitMQ consumer. Stopping host...");
+            _lifetime.StopApplication();
         }
         finally
         {
@@ -351,31 +357,34 @@ public class RabbitMqConsumerManager : IRabbitMqConsumerManager
 
     private async Task ConnectAndChannelDispose(CancellationToken ct)
     {
+        ClearHandlers();
+
         if (_channel is not null && _channel.IsOpen)
         {
             await _channel.CloseAsync(ct);
-            await _channel.DisposeAsync();
         }
 
-        _channel = null;
+        if (_channel is not null)
+        {
+            await _channel.DisposeAsync();
+            _channel = null;
+        }
 
         if (_connection is not null && _connection.IsOpen)
         {
             await _connection.CloseAsync(ct);
-            await _connection.DisposeAsync();
         }
 
-        _connection = null;
+        if (_connection is not null)
+        {
+            await _connection.DisposeAsync();
+            _connection = null;
+        }
     }
 
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        ClearHandlers();
-
-        await _channel?.CloseAsync();
-        await _connection?.CloseAsync();
-        _channel?.DisposeAsync();
-        _connection?.DisposeAsync();
+        await ConnectAndChannelDispose(default);
     }
 }

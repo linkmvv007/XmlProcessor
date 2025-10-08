@@ -20,6 +20,7 @@ public class Worker : IHostedService
     private readonly IRabbitMqPublisher _publisher;
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
+    private IHostApplicationLifetime _lifetime;
 
     /// <summary>
     /// 
@@ -37,10 +38,12 @@ public class Worker : IHostedService
         IRabbitMqPublisher publisher,
         IHostEnvironment env,
         IAsyncPolicy rabbitPolicy,
-        ISyncPolicy fileOpenPolicy
+        ISyncPolicy fileOpenPolicy,
+        IHostApplicationLifetime lifetime
     )
     {
         _logger = logger;
+        _lifetime = lifetime;
         _rabbitPolicy = rabbitPolicy;
         _fileOpenPolicy = fileOpenPolicy;
 
@@ -75,8 +78,8 @@ public class Worker : IHostedService
             if (!SetupFolders(out var folderPath, out var folderBadFilesPath))
             {
                 _logger.LogError($"Exit background service {TitleProgram}");
-
-                return;// exit
+                _lifetime.StopApplication();
+                return; // exit
             }
 
             while (!stoppingToken.IsCancellationRequested)
@@ -130,9 +133,12 @@ public class Worker : IHostedService
 
         if (!Directory.Exists(folderPath))
         {
-            _logger.LogWarning("Directory for xml files '{folderPath}' not found", folderPath);
+            if (!CreateDirectory(folderPath))
+            {
+                _logger.LogError("Directory for xml files '{folderPath}' not found", folderPath);
 
-            return (isExistPaths: false, value: (folderPath, null));
+                return (isExistPaths: false, value: (folderPath, null));
+            }
         }
 
         _logger.LogInformation("XML-file folder: {folderPath}", folderPath);
@@ -148,6 +154,21 @@ public class Worker : IHostedService
         }
 
         return (isExistPaths: true, value: (folderPath, folderBadFilesPath));
+    }
+
+    private bool CreateDirectory(string folderPath)
+    {
+        try
+        {
+            var di = Directory.CreateDirectory(folderPath);
+            return  di.Exists;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create directory {folderPath}", folderPath);
+        }
+
+        return false;
     }
 
     private async Task ProcessFile(string folderBadFilesPath, string fileName, CancellationToken stoppingToken)

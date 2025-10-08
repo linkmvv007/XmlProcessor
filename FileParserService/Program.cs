@@ -30,7 +30,7 @@ Host.CreateDefaultBuilder(args)
                 PolicyRegistryConsts.RabbitRetryKey, Policy
                     .Handle<RabbitMqReturnException>()
                     .Or<Exception>(ex => ex is not OperationCanceledException)
-                    .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                    .WaitAndRetryAsync(7, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
                         (ex, ts, count, ctx) =>
                         {
                             var logger = ctx[PolicyRegistryConsts.Logger] as Microsoft.Extensions.Logging.ILogger;

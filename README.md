@@ -20,9 +20,8 @@
     "XDeadLetterExchange": "retry.exchange",
     "XDeadLetterRoutingKey": "retry.key",
     "XDeadLetterQueueName": "retry.queue",
-
-    "MaxRetryCount": 3,
-
+    
+    "XMaxLength": 1000,
     "TtlDelay": 30000,
     
     "Consumer" : {
@@ -49,19 +48,21 @@
     "NetworkRecoveryInterval": 10,
 ```
 **QueueName** - наименование очереди, в которую будут посылаться сообщения.   Создается автоматически с необходимыми параметрами  
-**AutomaticRecoveryEnabled** - автоматически восстанавливает соединение с брокеров каждые **NetworkRecoveryInterval** секунд.  
+**AutomaticRecoveryEnabled** - автоматически восстанавливает соединение с брокеров каждые **NetworkRecoveryInterval** секунд, в случае разрыва соединения.  
 
 Следующие параметры отвечают за очередь, куда помещаются сообщения в случае недоступности бд или ошибок записи в бд в консьюмере.
-Из указанной очереди сообщения возвращаются назад через время, указанное в параметре TtlDelay  для повторной попытки исполнения
+Из указанной очереди сообщения возвращаются назад через время, указанное в параметре TtlDelay для повторной попытки исполнения
 
    ```
     "XDeadLetterExchange": "retry.exchange",
     "XDeadLetterRoutingKey": "retry.key",    
-    "XDeadLetterQueueName": "retry.queue",    
+    "XDeadLetterQueueName": "retry.queue",  
+    "XMaxLength": 1000,  
     "TtlDelay": 30000 
   ```
 **TtlDelay** задает время в миллисекундах, указано 30 секунд  
-** Параметры консьюмера**
+**XMaxLength** задает ограничение сообщений в очереди
+** Параметры консьюмера **
 ```
  "Consumer" : {
     "prefetchSize": 0,
@@ -115,11 +116,11 @@
     "XDeadLetterExchange": "retry.exchange",
     "XDeadLetterRoutingKey": "retry.key",
 
-    "AutomaticRecoveryEnabled": true,
+    "AutomaticRecoveryEnabled": false,
     "NetworkRecoveryInterval": 10 
   }
 ```
-Стандартные параметры те же, что и в DataProcessorService:
+Стандартные параметры те же, что и в DataProcessorService для подключения к RabbitMq:
 ```
         "HostName": "localhost",        
          "VirtualHost": "demand",         
@@ -131,12 +132,12 @@
          "NetworkRecoveryInterval": 10 
   ``` 
    
-Значения для  "XDeadLetterExchange" и "XDeadLetterRoutingKey" должны быть такие же, как в DataProcessorService, 
+Значения для "XDeadLetterExchange" и "XDeadLetterRoutingKey" должны быть такие же, как в DataProcessorService, 
 в противном случае возникнет исключение неправильной декларации очереди
 **QueueName** значение также одинаковое с DataProcessorService
 ```
    "XDeadLetterExchange": "retry.exchange",
-    "XDeadLetterRoutingKey": "retry.key",
+   "XDeadLetterRoutingKey": "retry.key",
 ```
 ## Логирование с помощью Serilog. Файл serilog.json ##
 Реализовано с помощью serilog так же как и для DataProcessorService
@@ -151,7 +152,10 @@
   }
 ```
  
-**ErrorFolder** - Папка с невалидными xml(сюда попадают невалидные xml файлы)  
-**XmlFolder** - папка, которая мониторится на наличие xml-файлов для обработки  
+**ErrorFolder** - Папка с невалидными xml(сюда попадают невалидные xml файлы). 
+Эта папка создается внутри  **XmlFolder**.
+**XmlFolder** - папка, которая мониторится на наличие xml-файлов для обработки. 
+Находится в папке сервиса, создается при старте сервиса автоматически. 
+В случае невозможности создать или ее отсутствия сервис завершает работу
 **MaxThreadsCount** - количество потоков, которые  задействованы для чтения xml файлов  
-**Ext** - маска расширений, искомых файлов для обработки  
+**Ext** - маска расширений, обрабатываемых xml-файлов

@@ -11,6 +11,7 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly IRabbitMqConsumerManager _consumerManager;
     private readonly IRepository _repository;
+    private readonly IHostApplicationLifetime _lifetime;
 
     /// <summary>
     /// 
@@ -18,15 +19,18 @@ public class Worker : BackgroundService
     /// <param name="logger"></param>
     /// <param name="consumerManager"></param>
     /// <param name="repository"></param>
+    /// <param name="lifetime"></param>
     public Worker(
-        ILogger<Worker> logger, 
+        ILogger<Worker> logger,
         IRabbitMqConsumerManager consumerManager,
-        IRepository repository
-        )
+        IRepository repository,
+        IHostApplicationLifetime lifetime
+    )
     {
         _logger = logger;
         _consumerManager = consumerManager;
         _repository = repository;
+        _lifetime = lifetime;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -43,8 +47,9 @@ public class Worker : BackgroundService
         if (await InitializeOrTerminateAsync())
         {
             await _consumerManager.InitConsumer(stoppingToken);
-        } 
+        }
     }
+
     private async Task<bool> InitializeOrTerminateAsync()
     {
         using CancellationTokenSource localCts = new();
@@ -56,11 +61,13 @@ public class Worker : BackgroundService
         if (localCts.IsCancellationRequested)
         {
             _logger.LogInformation("Exit background service");
+            _lifetime.StopApplication();
             return false;
         }
 
         return true;
     }
+
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         await _consumerManager.DisposeAsync();
