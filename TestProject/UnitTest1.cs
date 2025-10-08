@@ -3,6 +3,7 @@ using DataProcessorService.Db.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
+using NUnit.Framework.Legacy;
 using SharedLibrary;
 using SharedLibrary.Configuration;
 using SharedLibrary.Json;
@@ -52,7 +53,7 @@ public class Tests
         }
 
 
-        Assert.IsTrue(modules!.DeviceStatuses.Count == 3);
+        ClassicAssert.IsTrue(modules!.DeviceStatuses.Count == 3);
 
         InstrumentStatusJson json = modules.ToJson(true);
 
@@ -83,8 +84,8 @@ public class Tests
         {
             ConnectionString = $"Data Source={fileName}"
         });
-        
-        
+
+
         IRepository db = new Repository(
             CreateMockLogger(),
             mockOptionsMonitor.Object
@@ -93,7 +94,7 @@ public class Tests
         var cts = new CancellationTokenSource();
         await db.InitializeDatabaseAsync(cts);
 
-        Assert.IsTrue(
+        ClassicAssert.IsTrue(
             await db.ProcessModuleAsync(
                 new ModuleInfoJson
                 {
@@ -103,10 +104,10 @@ public class Tests
                 CancellationToken.None
             )
         );
-        
-        Assert.IsTrue(
+
+        ClassicAssert.IsTrue(
             await db.ProcessModulesBatchAsync(
-                new []
+                new[]
                 {
                     new ModuleInfoJson
                     {
@@ -124,7 +125,7 @@ public class Tests
                         ModuleState = ModuleStateEnum.Offline.ToString(),
                     }
                 },
-                
+
                 CancellationToken.None
             )
         );
