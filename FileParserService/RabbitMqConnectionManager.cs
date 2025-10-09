@@ -38,6 +38,14 @@ public class RabbitMqConnectionManager : IRabbitMqConnectionManager, IDisposable
             AutomaticRecoveryEnabled = _rabbitMqPublisherConfig.AutomaticRecoveryEnabled,
             NetworkRecoveryInterval = TimeSpan.FromSeconds(_rabbitMqPublisherConfig.NetworkRecoveryInterval)
         };
+        
+        _logger.LogInformation("Rabbit Connection: Host: {HostName}, VirtualHost:{VirtualHost}, UserName:{UserName}, Password:{Password}, Port: {Port}", 
+            _factory.HostName,
+            _factory.VirtualHost, 
+            _factory.UserName, 
+            _factory.Password,
+            _factory.Port
+            );
     }
 
     private async Task DeclareQueueAsync(IChannel channel, CancellationToken ts)
