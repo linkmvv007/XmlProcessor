@@ -1,0 +1,78 @@
+﻿services:
+  dataprocessorservice:
+    image: dataprocessorservice
+    build:
+      context: .
+      dockerfile: ./DataProcessorService/Dockerfile
+    ports:
+      - "5001:80"
+    
+    environment:
+      RABBITMQ__HOSTNAME: rabbitmq
+      RABBITMQ__VIRTUALHOST: /
+      RABBITMQ__PORT: 5672
+      RABBITMQ__USERNAME: guest
+      RABBITMQ__PASSWORD: guest
+      RABBITMQ__QUEUENAME: test_ttl_xml_processing_queue
+      RABBITMQ__AUTOMATICRECOVERYENABLED: "true"
+      RABBITMQ__NETWORKRECOVERYINTERVAL: 10
+      RABBITMQ__XDEADLETTEREXCHANGE: retry.exchange
+      RABBITMQ__XDEADLETTERROUTINGKEY: retry.key
+      RABBITMQ__XDEADLETTERQUEUENAME: retry.queue
+      RABBITMQ__XMAXLENGTH: 1000
+      RABBITMQ__TTLDELAY: 30000
+      RABBITMQ__CONSUMER__PREFETCHSIZE: 0
+      RABBITMQ__CONSUMER__PREFETCHCOUNT: 5
+      RABBITMQ__CONSUMER__GLOBAL: "false"
+      DATABASE__CONNECTIONSTRING: "Data Source=modules.db"
+      
+    depends_on:
+      - rabbitmq
+      
+  fileparserservice:
+    image: fileparserservice
+    build:
+      context: .
+      dockerfile: ./FileParserService/Dockerfile
+    ports:
+      - "5000:80"
+    environment:
+      - RabbitMq__HostName=rabbitmq
+      - RabbitMq__VirtualHost=/
+      - RabbitMq__Port=5672
+      - RabbitMq__UserName=guest
+      - RabbitMq__Password=guest
+      - RabbitMq__QueueName=test_ttl_xml_processing_queue
+      - RabbitMq__XDeadLetterExchange=retry.exchange
+      - RabbitMq__XDeadLetterRoutingKey=retry.key
+      - RabbitMq__AutomaticRecoveryEnabled=false
+      - RabbitMq__NetworkRecoveryInterval=10
+      - XmlFiles__ErrorFolder=/app/xml/_errors
+      - XmlFiles__XmlFolder=/app/xml
+      - XmlFiles__MaxThreadsCount=10
+      - XmlFiles__Ext=*.xml
+      - Logging__LogLevel__Default=Information
+      - Logging__LogLevel__Microsoft__Hosting__Lifetime=Information
+      
+    depends_on:
+      - rabbitmq
+    volumes:
+      - c:\Users\Dell\source\repos\net9\SharedLibrary\FileParserService\xml:/app/xml
+      - c:\Users\Dell\source\repos\net9\SharedLibrary\FileParserService\xml\_errors:/app/xml/_errors
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+      hostname: rabbitmq
+
+
+  
+     
+
