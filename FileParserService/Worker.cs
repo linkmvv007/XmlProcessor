@@ -1,6 +1,4 @@
-﻿using System.Text.Json;
-using System.Text.Json.Serialization;
-using FileParserService.Xml;
+﻿using FileParserService.Xml;
 using FileParserWebService.Interfaces;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -8,6 +6,8 @@ using SharedLibrary;
 using SharedLibrary.Configuration;
 using SharedLibrary.Json;
 using SharedLibrary.Xml;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace FileParserService;
 
@@ -21,6 +21,9 @@ public class Worker : IHostedService
     private readonly IAsyncPolicy _rabbitPolicy;
     private readonly ISyncPolicy _fileOpenPolicy;
     private IHostApplicationLifetime _lifetime;
+    private DateTime _lastSuccessfulRun = DateTime.UtcNow;
+
+    public bool IsHealthy => DateTime.UtcNow - _lastSuccessfulRun < TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// 
@@ -99,6 +102,8 @@ public class Worker : IHostedService
                             async (file, ct) => { await ProcessFile(folderBadFilesPath!, file, ct); }
                         );
                     }
+
+                    _lastSuccessfulRun = DateTime.UtcNow;
                 }
                 catch (Exception ex)
                 {
@@ -161,7 +166,7 @@ public class Worker : IHostedService
         try
         {
             var di = Directory.CreateDirectory(folderPath);
-            return  di.Exists;
+            return di.Exists;
         }
         catch (Exception ex)
         {

@@ -10,7 +10,7 @@ Host.CreateDefaultBuilder(args)
     .UseDefaultServiceProvider(options =>
     {
         options.ValidateScopes = true;
-        options.ValidateOnBuild = true; 
+        options.ValidateOnBuild = true;
     })
     .UseSerilog((_, config) =>
     {
@@ -63,6 +63,7 @@ Host.CreateDefaultBuilder(args)
 
         // Hosted service
         services.AddHostedService<Worker>();
+        services.AddWorkerHealthCheck();
 
         // BackgroundService exception behavior
         services.Configure<HostOptions>(options =>
